@@ -17,6 +17,7 @@ def get_predictions_of_dl(model, dl, latent_samples=0):
         info["model"].append(batch.model[:, 0].detach().cpu().numpy())
         info["length"].append(batch.length[:, 0].detach().cpu().numpy())
         info["noise"].append(batch.noise[:, 0].detach().cpu().numpy())
+        info["tau"].append(batch.tau[:, 0].detach().cpu().numpy())
         if latent_samples > 0:
             if len(latent) * h.shape[0] <= latent_samples:
                 latent.append(h.detach().cpu().numpy())

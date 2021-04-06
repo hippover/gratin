@@ -12,7 +12,7 @@ from torch_geometric.data import Data
 import torch
 import numpy as np
 
-from ..layers.data_tools import *
+from .data_tools import *
 
 EMPTY_FIELD_VALUE = -999
 

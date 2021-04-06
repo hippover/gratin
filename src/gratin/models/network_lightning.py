@@ -5,9 +5,10 @@ from pytorch_lightning.metrics import ExplainedVariance as EV
 import torch.nn as nn
 import torch
 from functools import partial
-from .network_parts import MLP, AlphaPredictor, TrajsEncoder
+from ..layers.diverse import MLP, AlphaPredictor
 from ..training.network_tools import L2_loss, Category_loss, is_concerned
 from ..data.data_classes import DataModule
+from ..layers.encoders import *
 from torch.optim.lr_scheduler import ExponentialLR
 
 
@@ -22,17 +23,31 @@ class MainNet(pl.LightningModule):
         params_scarcity: int = 0,
         gamma: float = 0.98,
         lr: float = 1e-3,
+        encoder_type: str = "classic",
     ):
         super().__init__()
-        self.encoder = TrajsEncoder(n_c=n_c, latent_dim=latent_dim, dm=dm)
 
         self.save_hyperparameters("gamma")
         self.save_hyperparameters("lr")
         self.save_hyperparameters("tasks")
         self.save_hyperparameters("latent_dim")
         self.save_hyperparameters("n_c")
+        self.save_hyperparameters("encoder_type")
         self.save_hyperparameters(dm.ds_params)
         self.save_hyperparameters(dm.graph_info)
+        self.save_hyperparameters({"e_dim": dm.e_dim, "x_dim": dm.x_dim})
+
+        if self.hparams["encoder_type"] == "classic":
+            self.encoder = TrajsEncoder(
+                n_c=n_c, latent_dim=latent_dim, x_dim=self.hparams["x_dim"]
+            )
+        elif self.hparams["encoder_type"] == "custom":
+            self.encoder = TrajsEncoder2(
+                n_c=n_c,
+                latent_dim=latent_dim,
+                x_dim=self.hparams["x_dim"],
+                e_dim=self.hparams["e_dim"],
+            )
 
         outputs = self.get_output_modules(
             tasks, latent_dim, dm.ds_params["dim"], dm.ds_params["RW_types"]
@@ -61,11 +76,13 @@ class MainNet(pl.LightningModule):
         if "model" in self.losses:
             self.loss_scale["model"] = 1.0
         if "alpha" in self.losses:
-            self.loss_scale["alpha"] = 1.5 / 12.0
+            self.loss_scale["alpha"] = ((2.0 - 0.0) ** 2) / 12.0
         if "drift_norm" in self.losses:
             self.loss_scale["drift_norm"] = (
                 self.hparams["drift_range"][1] - self.hparams["drift_range"][0]
             ) / 12.0
+        if "tau" in self.losses:
+            self.loss_scale["tau"] = ((100.0 - 10) ** 2) / 12.0
 
     def get_output_modules(self, tasks, latent_dim, dim, RW_types):
         outputs = {}
@@ -99,6 +116,15 @@ class MainNet(pl.LightningModule):
                 partial(self.get_target, target="drift_norm"),
                 L2_loss,
             )
+        if "tau" in tasks:
+            outputs["tau"] = (
+                MLP(
+                    [latent_dim, 2 * latent_dim, latent_dim, latent_dim, 1],
+                    out_range=(10, 100),
+                ),
+                partial(self.get_target, target="tau"),
+                L2_loss,
+            )
         return outputs
 
     def get_target(self, data, target):
@@ -112,6 +138,8 @@ class MainNet(pl.LightningModule):
             return data.drift_norm
         elif target == "log_theta":
             return data.log_theta
+        elif target == "tau":
+            return data.tau
         else:
             raise NotImplementedError("Unknown target %s" % target)
 
