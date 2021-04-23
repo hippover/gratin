@@ -1,48 +1,71 @@
 from .diverse import *
 from .minimal_conv import *
 from torch_geometric.nn import NNConv, GATConv
+from torch_sparse import SparseTensor
 
 
 class TrajsEncoder2(nn.Module):
     def __init__(
         self,
+        traj_dim: int,
         x_dim: int,
         e_dim: int,
         n_c: int = 64,  # Number of convolution kernels
+        n_scales: int = 1,
         latent_dim: int = 8,
     ):
         super(TrajsEncoder2, self).__init__()
+        e_latent_dim = 16
 
-        self.edges_MLP = MLP([e_dim, 8, 8, 16])
+        self.edges_MLP = MLP([e_dim, 8, 8, e_latent_dim])
 
-        self.att_conv = GATConv(in_channels=x_dim, out_channels=n_c, heads=1)
+        n_heads = 1
+
+        self.att_conv = GATConv(
+            in_channels=x_dim, out_channels=n_c // n_heads, heads=n_heads
+        )
 
         self.conv_edges = NNConv(
             in_channels=n_c,
             out_channels=n_c,
-            nn=MLP([e_dim, e_dim * 2, x_dim * n_c]),
+            nn=MLP([e_latent_dim, e_latent_dim * 2, n_c * n_c]),
             aggr="mean",
         )
 
-        self.last_conv = MinimalJumpsConv(latent_dim, 2 * n_c)
+        self.last_conv = MinimalJumpsConv(latent_dim, n_c)
 
         gate_nn = MLP([3 * n_c, n_c, n_c // 2, 1])
         self.pooling = GlobalAttention(gate_nn=gate_nn)
 
-        self.mlp = MLP([3 * n_c, latent_dim])  # used to be tanh for last_activation
+        self.mlp = MLP(
+            [(3 * n_c) + n_scales + traj_dim, 2 * latent_dim, latent_dim, latent_dim]
+        )  # used to be tanh for last_activation
 
     def forward(self, data):
         adj_t = data.adj_t
-        x1 = self.att_conv(x=data.x, edge_index=adj_t)
-        adj_t = self.edges_MLP(adj_t)
+        row, col, edge_attr = adj_t.t().coo()
+        edge_index = torch.stack([row, col], dim=0)
 
-        x2 = self.conv_edges(x=x1, edge_index=adj_t)
+        x1 = self.att_conv(x=data.x, edge_index=edge_index)
 
-        x3 = self.last_conv(x=x2, edge_index=adj_t)
+        edges_embedding = self.edges_MLP(edge_attr)
+
+        # adj_t = adj_t.set_value(edges_embedding)
+
+        # x2 = self.conv_edges(x=x1, edge_index=adj_t)
+        x2 = self.conv_edges(x=x1, edge_index=edge_index, edge_attr=edges_embedding)
+
+        sparse_adj_t = SparseTensor(col=col, row=row)
+        x3 = self.last_conv(x=x2, edge_index=sparse_adj_t)
 
         x = torch.cat([x1, x2, x3], dim=1)
         x = self.pooling(x=x, batch=data.batch)
-        return self.mlp(x)
+
+        x = torch.cat((x, torch.log(data.scales + 1e-5), data.orientation), dim=1)
+
+        out = self.mlp(x)
+
+        return out
 
 
 ## Encoder module

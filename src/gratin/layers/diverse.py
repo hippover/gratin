@@ -23,7 +23,7 @@ class BoundSigmoid(nn.Module):
     def forward(self, x):
         return (
             torch.sigmoid(x) * (self.out_range[1] - self.out_range[0])
-            - self.out_range[0]
+            + self.out_range[0]
         )
 
 

@@ -37,8 +37,8 @@ class Plotter(Callback):
     def on_validation_epoch_end(self, trainer, pl_module):
 
         for param in tqdm(self.info, leave=False, colour="blue"):
-            if param not in ["alpha", "drift_norm", "model"]:
-                continue
+            # if param not in ["alpha", "drift_norm", "model"]:
+            #    continue
             info = torch.cat(self.info[param], dim=0)
             pred = torch.cat(self.preds[param], dim=0)
 
@@ -112,6 +112,20 @@ class Plotter(Callback):
                 plt.tight_layout()
 
                 self.tb.add_figure("DNorm_val", fig, global_step=self.round, close=True)
+
+            elif pred.shape[1] == info.shape[1]:
+                fig = plt.figure()
+                for d in range(pred.shape[1]):
+                    plt.scatter(info[:, d], pred[:, d], label="dimension %d" % d, s=1)
+                plt.xlabel("True")
+                plt.ylabel("Predicted")
+                if pred.shape[1] > 1:
+                    plt.legend()
+                plt.title(param)
+                plt.tight_layout()
+                self.tb.add_figure(
+                    "%s_val" % param, fig, global_step=self.round, close=True
+                )
 
         self.round += 1
 

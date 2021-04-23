@@ -1,3 +1,4 @@
+from collections import defaultdict
 import pytorch_lightning as pl
 from pytorch_lightning.metrics.regression import MeanAbsoluteError as MAE
 from pytorch_lightning.metrics import F1
@@ -6,52 +7,45 @@ import torch.nn as nn
 import torch
 from functools import partial
 from ..layers.diverse import MLP, AlphaPredictor
+from ..layers.features_init import *
 from ..training.network_tools import L2_loss, Category_loss, is_concerned
 from ..data.data_classes import DataModule
 from ..layers.encoders import *
 from torch.optim.lr_scheduler import ExponentialLR
 
 
-class MainNet(pl.LightningModule):
+class MainNet_withfeatures(pl.LightningModule):
     def __init__(
         self,
         tasks: list,
-        # dm: DataModule,
-        ds_params: dict,
-        graph_info: dict,
         n_c: int,  # number of convolutions
         latent_dim: int,
-        n_final_convolutions: int = 1,
-        params_scarcity: int = 0,
+        dim: int,  # traj dim
         gamma: float = 0.98,
         lr: float = 1e-3,
-        x_dim: int = 16,
-        e_dim: int = 0,
-        encoder_type: str = "classic",
+        RW_types: list = ["fBM"],
+        scale_types: list = ["step_std"],
     ):
         super().__init__()
 
         self.save_hyperparameters()
-        self.save_hyperparameters(ds_params)
-        self.save_hyperparameters(graph_info)
+        x_dim = TrajsFeatures.x_dim(scale_types)
+        e_dim = TrajsFeatures.e_dim(scale_types)
+        self.save_hyperparameters({"x_dim": x_dim, "e_dim": e_dim})
 
-        # self.save_hyperparameters({"e_dim": dm.e_dim, "x_dim": dm.x_dim})
-
-        if self.hparams["encoder_type"] == "classic":
-            self.encoder = TrajsEncoder(
-                n_c=n_c, latent_dim=latent_dim, x_dim=self.hparams["x_dim"]
-            )
-        elif self.hparams["encoder_type"] == "custom":
-            self.encoder = TrajsEncoder2(
-                n_c=n_c,
-                latent_dim=latent_dim,
-                x_dim=self.hparams["x_dim"],
-                e_dim=self.hparams["e_dim"],
-            )
-
-        outputs = self.get_output_modules(
-            tasks, latent_dim, self.hparams["dim"], self.hparams["RW_types"]
+        self.encoder = TrajsEncoder2(
+            n_c=n_c,
+            latent_dim=latent_dim,
+            x_dim=self.hparams["x_dim"],
+            e_dim=self.hparams["e_dim"],
+            traj_dim=dim,
+            n_scales=len(self.hparams["scale_types"])
+            + 1,  # + 1 car on passe la longueur comme scale aussi
         )
+
+        outputs = self.get_output_modules(tasks, latent_dim, dim, RW_types)
+
+        self.features_maker = TrajsFeatures()
 
         self.out_networks = {}
         self.losses = {}
@@ -62,7 +56,7 @@ class MainNet(pl.LightningModule):
             self.targets[out] = target
             self.losses[out] = loss
         self.out_networks = nn.ModuleDict(self.out_networks)
-        self.loss_scale = {}
+        self.loss_scale = defaultdict(lambda: 1.0 / 12.0)
         self.set_loss_scale()
 
         if "alpha" in tasks:
@@ -78,11 +72,17 @@ class MainNet(pl.LightningModule):
         if "alpha" in self.losses:
             self.loss_scale["alpha"] = ((2.0 - 0.0) ** 2) / 12.0
         if "drift_norm" in self.losses:
-            self.loss_scale["drift_norm"] = (
-                self.hparams["drift_range"][1] - self.hparams["drift_range"][0]
-            ) / 12.0
-        if "tau" in self.losses:
-            self.loss_scale["tau"] = 1.0 / 12.0
+            self.loss_scale["drift_norm"] = (0.5 ** 2) / 12
+        if "drift" in self.losses:
+            self.loss_scale["drift"] = 1.0
+        if "force_norm" in self.losses:
+            self.loss_scale["force_norm"] = (0.5 ** 2) / 12
+        if "force" in self.losses:
+            self.loss_scale["force"] = 1.0
+        if "log_tau" in self.losses:
+            self.loss_scale["log_tau"] = 1.0 / 12.0
+        if "log_diffusion" in self.losses:
+            self.loss_scale["log_diffusion"] = ((4.0 + 4.0) ** 2) / 12.0
 
     def get_output_modules(self, tasks, latent_dim, dim, RW_types):
         outputs = {}
@@ -104,27 +104,52 @@ class MainNet(pl.LightningModule):
                 partial(self.get_target, target="drift"),
                 L2_loss,
             )
-        if "log_theta" in tasks:
-            outputs["log_theta"] = (
-                MLP([latent_dim, 2 * latent_dim, latent_dim, 1]),
-                partial(self.get_target, target="log_theta"),
-                L2_loss,
-            )
         if "drift_norm" in tasks:
             outputs["drift_norm"] = (
                 MLP([latent_dim, 2 * latent_dim, 1], last_activation=nn.ReLU()),
                 partial(self.get_target, target="drift_norm"),
                 L2_loss,
             )
-        if "tau" in tasks:
-            outputs["tau"] = (
+        if "force" in tasks:
+            outputs["force"] = (
+                MLP([latent_dim, 2 * latent_dim, latent_dim, dim]),
+                partial(self.get_target, target="force"),
+                L2_loss,
+            )
+        if "force_norm" in tasks:
+            outputs["force_norm"] = (
+                MLP([latent_dim, 2 * latent_dim, 1], last_activation=nn.ReLU()),
+                partial(self.get_target, target="force_norm"),
+                L2_loss,
+            )
+        if "log_theta" in tasks:
+            outputs["log_theta"] = (
+                MLP([latent_dim, 2 * latent_dim, latent_dim, 1]),
+                partial(self.get_target, target="log_theta"),
+                L2_loss,
+            )
+        if "log_tau" in tasks:
+            outputs["log_tau"] = (
                 MLP(
                     [latent_dim, 2 * latent_dim, latent_dim, latent_dim, 1],
                     out_range=(1, 2),
                 ),
-                partial(self.get_target, target="tau"),
+                partial(self.get_target, target="log_tau"),
                 L2_loss,
             )
+        if "log_diffusion" in tasks:
+            outputs["log_diffusion"] = (
+                MLP(
+                    [latent_dim, 2 * latent_dim, latent_dim, latent_dim, 1],
+                    out_range=(-4, 4),
+                ),
+                partial(self.get_target, target="log_diffusion"),
+                L2_loss,
+            )
+
+        if len(outputs) == 0:
+            print(tasks)
+            raise BaseException("No outputs !")
         return outputs
 
     def get_target(self, data, target):
@@ -136,14 +161,30 @@ class MainNet(pl.LightningModule):
             return data.drift
         elif target == "drift_norm":
             return data.drift_norm
+        elif target == "force":
+            return data.force
+        elif target == "force_norm":
+            return data.force_norm
         elif target == "log_theta":
             return data.log_theta
-        elif target == "tau":
-            return torch.log10(data.tau.float())
+        elif target == "log_tau":
+            return data.log_tau
+        elif target == "log_diffusion":
+            return data.log_diffusion
         else:
             raise NotImplementedError("Unknown target %s" % target)
 
     def forward(self, x):
+
+        X, E, scales, orientation = self.features_maker(
+            x, scale_types=self.hparams["scale_types"]
+        )
+        x.adj_t = x.adj_t.set_value(E)
+        x.x = X
+        x.scales = scales
+        x.orientation = orientation
+
+        assert x.x.shape[1] == self.hparams["x_dim"]
         h = self.encoder(x)
         out = {}
         # targets = {}
