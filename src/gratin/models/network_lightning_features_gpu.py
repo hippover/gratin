@@ -183,6 +183,11 @@ class MainNet_withfeatures(pl.LightningModule):
         x.x = X
         x.scales = scales
         x.orientation = orientation
+        # print(x.seed)
+        # unique, counts = torch.unique(x.seed, return_counts=True)
+        # print(unique)
+        # print(counts)
+        # Checked that counts is filled with ones, and that no ID appear in two different batches
 
         assert x.x.shape[1] == self.hparams["x_dim"]
         h = self.encoder(x)

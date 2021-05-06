@@ -1,3 +1,4 @@
+from typing import Union
 import torch.nn as nn
 from torch_geometric.data import Batch
 from torch_scatter import scatter
@@ -30,8 +31,12 @@ def is_last_point(B):
 def diff_per_graph(X, B, fill_last=True):
     d = torch.roll(X, -1, dims=(0,)) - X
     if fill_last:
-        d[is_last_point(B)] = 0.0
-        return d
+        # d[is_last_point(B)] = 0.0
+        return torch.where(
+            torch.stack([is_last_point(B) for d in range(X.shape[1])], dim=1),
+            0.0,
+            d.double(),
+        ).float()
     else:
         d = d[~is_last_point(B)]
         return d, B[~is_last_point(B)]
@@ -69,7 +74,7 @@ class TrajsFeatures(nn.Module):
             dr = diff_per_graph(P, B)
             in_points = ~is_first_point(B)
             dr = dr[in_points]
-            dr_norm = torch.sqrt(torch.sum(dr ** 2, dim=1))
+            dr_norm = torch.sqrt(1e-5 + torch.sum(dr ** 2, dim=1))
 
         if "pos_std" in scale_types:
             P_STD = torch.sqrt(torch.sum(scatter_std(P, B) ** 2, dim=1))
@@ -94,9 +99,9 @@ class TrajsFeatures(nn.Module):
 
     @classmethod
     def e_dim(cls, scale_types):
-        return 1 + len(scale_types) * 2
+        return 1 + len(scale_types) * 4
 
-    def forward(self, data: Batch, scale_types=["pos_std"]):
+    def forward(self, data: Batch, scale_types=["pos_std"], return_intermediate=False):
         B = data.batch
         P = data.pos
 
@@ -113,13 +118,16 @@ class TrajsFeatures(nn.Module):
         dr = diff_per_graph(P, B)
 
         for s in scales:
+
             scale_factor = torch.index_select(s, dim=0, index=B).view(-1, 1)
             dr_ = dr / scale_factor
             p = P / scale_factor
-            dr_norm = torch.sqrt(torch.sum(dr_ ** 2, dim=1))
+            dr_norm = torch.sqrt(1e-5 + torch.sum(dr_ ** 2, dim=1))
 
-            node_features.append(cumsum_per_graph(dr_norm, B).view(-1, 1))
-            node_features.append(cumsum_per_graph(dr_norm ** 2, B).view(-1, 1))
+            cum_dist = cumsum_per_graph(dr_norm, B).view(-1, 1)
+            cum_msd = cumsum_per_graph(dr_norm ** 2, B).view(-1, 1)
+            node_features.append(cum_dist)
+            node_features.append(cum_msd)
             node_features.append(cummax_per_graph(dr_norm, B).view(-1, 1))
 
             end, start = p[row], p[col]
@@ -131,6 +139,8 @@ class TrajsFeatures(nn.Module):
 
             edge_features.append(d.view(-1, 1))
             edge_features.append(corr.view(-1, 1))
+            edge_features.append(cum_dist[row] - cum_dist[col])
+            edge_features.append(cum_msd[row] - cum_msd[col])
 
         X = torch.cat(node_features, dim=1)
         E = torch.cat(edge_features, dim=1)
@@ -140,9 +150,12 @@ class TrajsFeatures(nn.Module):
 
         # Make a tensor with scales and L (to be used to infer D)
         u = scatter(dr, B, reduce="mean", dim=0)
-        u = u / torch.sqrt(torch.sum(u ** 2, dim=1).view(-1, 1))
+        u = u / torch.sqrt(1e-5 + torch.sum(u ** 2, dim=1).view(-1, 1))
         scales = torch.stack(scales + [L], dim=1)
 
         orientation = u
 
-        return X, E, scales, orientation
+        if not return_intermediate:
+            return X, E, scales, orientation
+        else:
+            return X, E, scales, orientation, node_features, edge_features, dr_norm

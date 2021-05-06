@@ -4,7 +4,6 @@ import numpy as np
 from torch_sparse import matmul
 from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.nn import GlobalAttention, global_mean_pool
-from ..data.data_classes import DataModule
 
 ## Basic perceptron
 

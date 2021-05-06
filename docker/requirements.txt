@@ -20,3 +20,4 @@ tramway
 umap-learn[parametric_umap]
 tensorboard
 codecarbon
+seaborn

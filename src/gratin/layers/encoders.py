@@ -32,13 +32,16 @@ class TrajsEncoder2(nn.Module):
             aggr="mean",
         )
 
-        self.last_conv = MinimalJumpsConv(latent_dim, n_c)
+        self.last_conv = MinimalJumpsConv(n_c, n_c, aggr="max")
 
-        gate_nn = MLP([3 * n_c, n_c, n_c // 2, 1])
+        gate_nn = MLP([n_c, n_c, n_c // 2, 1])
         self.pooling = GlobalAttention(gate_nn=gate_nn)
 
+        self.n_scales = n_scales
+        self.traj_dim = traj_dim
+
         self.mlp = MLP(
-            [(3 * n_c) + n_scales + traj_dim, 2 * latent_dim, latent_dim, latent_dim]
+            [n_c + n_scales + traj_dim, 2 * latent_dim, latent_dim, latent_dim]
         )  # used to be tanh for last_activation
 
     def forward(self, data):
@@ -58,10 +61,15 @@ class TrajsEncoder2(nn.Module):
         sparse_adj_t = SparseTensor(col=col, row=row)
         x3 = self.last_conv(x=x2, edge_index=sparse_adj_t)
 
-        x = torch.cat([x1, x2, x3], dim=1)
+        # x = torch.cat([x1, x2, x3], dim=1)
+        x = x1 + x2 + x3
+
         x = self.pooling(x=x, batch=data.batch)
 
-        x = torch.cat((x, torch.log(data.scales + 1e-5), data.orientation), dim=1)
+        if self.n_scales > 0:
+            x = torch.cat((x, torch.log(data.scales + 1e-5)), dim=1)
+        if self.traj_dim > 0:
+            x = torch.cat((x, data.orientation), dim=1)
 
         out = self.mlp(x)
 
