@@ -78,7 +78,7 @@ class MainNet_withfeatures(pl.LightningModule):
         if "force_norm" in self.losses:
             self.loss_scale["force_norm"] = (0.5 ** 2) / 12
         if "force" in self.losses:
-            self.loss_scale["force"] = 1.0
+            self.loss_scale["force"] = (0.1 ** 2) / 12
         if "log_tau" in self.losses:
             self.loss_scale["log_tau"] = 1.0 / 12.0
         if "log_diffusion" in self.losses:
