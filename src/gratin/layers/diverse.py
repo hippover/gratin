@@ -4,6 +4,9 @@ import numpy as np
 from torch_sparse import matmul
 from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.nn import GlobalAttention, global_mean_pool
+from ..data.data_tools import edges_geom_causal
+from torch_sparse import SparseTensor
+from torch_geometric.data import Batch
 
 ## Basic perceptron
 
@@ -61,6 +64,29 @@ def MLP(
             for i in range(1, len(channels))
         ]
     )
+
+
+def batch_from_positions(pos, N, L, D, degree):
+    x_pos = torch.reshape(pos, (N * L, D))
+    # assert torch.equal(x_pos[L : (2 * L)], pos[1])
+    batch = torch.repeat_interleave(torch.arange(N, device=pos.device), L)
+    # edge_index = x.get_edges(steps[0], {"edge_method": "geom_causal"})
+    row, col = edges_geom_causal(L, degree)
+    row = torch.from_numpy(row).to(x_pos.device)
+    col = torch.from_numpy(col).to(x_pos.device)
+    edge_index = torch.stack((row, col), dim=0).long()
+
+    N_edges = edge_index.shape[1]
+    edge_index = edge_index.repeat((1, N))
+    shift = (
+        torch.repeat_interleave(torch.arange(N, device=x_pos.device).long(), N_edges)
+        * L
+    )
+    edge_index += torch.stack((shift, shift), dim=0)
+    adj_t = SparseTensor(col=edge_index[0], row=edge_index[1])
+
+    x_pred = Batch(batch=batch, pos=x_pos, adj_t=adj_t)
+    return x_pred
 
 
 class AlphaPredictor(nn.Module):

@@ -21,3 +21,4 @@ umap-learn[parametric_umap]
 tensorboard
 codecarbon
 seaborn
+test_tube

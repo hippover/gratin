@@ -7,14 +7,14 @@ from pytorch_lightning.metrics import ExplainedVariance as EV
 import torch.nn as nn
 import torch
 from functools import partial
-from ..layers.diverse import MLP, AlphaPredictor
+from ..layers.diverse import MLP, AlphaPredictor, batch_from_positions
 from ..layers.features_init import *
 from ..training.network_tools import L2_loss, Category_loss, is_concerned
 from ..data.data_classes import DataModule
-from ..data.data_tools import edges_geom_causal
+
 from ..layers.encoders import *
 from ..layers.InvNet import InvertibleNet
-from torch_sparse import SparseTensor
+
 from torch.optim.lr_scheduler import ExponentialLR
 from torch_geometric.data import Batch
 
@@ -91,37 +91,17 @@ class SelfSup(pl.LightningModule):
         )
         pos = torch.transpose(pos, 1, 2)
 
-        x_pos = torch.reshape(pos, (N * L, D))
-        # assert torch.equal(x_pos[L : (2 * L)], pos[1])
-        batch = torch.repeat_interleave(torch.arange(N, device=self.device), L)
-        # edge_index = x.get_edges(steps[0], {"edge_method": "geom_causal"})
-        row, col = edges_geom_causal(L, self.hparams["degree"])
-        row = torch.from_numpy(row).to(x_pos.device)
-        col = torch.from_numpy(col).to(x_pos.device)
-        edge_index = torch.stack((row, col), dim=0).long()
+        x_pred = batch_from_positions(pos, N=N, L=L, D=D, degree=self.hparams["degree"])
 
-        N_edges = edge_index.shape[1]
-        edge_index = edge_index.repeat((1, N))
-        shift = (
-            torch.repeat_interleave(
-                torch.arange(N, device=x_pos.device).long(), N_edges
-            )
-            * L
-        )
-        edge_index += torch.stack((shift, shift), dim=0)
-        adj_t = SparseTensor(col=edge_index[0], row=edge_index[1])
-
-        x_pred = Batch(batch=batch, pos=x_pos, adj_t=adj_t)
         (X_pred, E_pred, scales, orientation) = self.features_maker(
             x_pred,
             scale_types=self.hparams["scale_types"],
             return_intermediate=False,
         )
-        assert torch.sum(torch.isnan(X_pred)) == 0
-        assert torch.sum(torch.isnan(E_pred)) == 0
-        x_pred = Batch(batch, adj_t=x_pred.adj_t.set_value(E_pred), pos=x_pos, x=X_pred)
-        # x_pred.adj_t = x_pred.adj_t.set_value(E_pred)
-        # x_pred.x = X_pred
+        # Need to re-create a batch to set the edge features values...
+        x_pred = Batch(
+            x_pred.batch, adj_t=x_pred.adj_t.set_value(E_pred), pos=x_pos, x=X_pred
+        )
 
         h_pred = self.summary_net(x_pred)
 
