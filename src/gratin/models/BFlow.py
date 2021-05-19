@@ -43,7 +43,7 @@ class BFlow(pl.LightningModule):
             x_dim=self.hparams["x_dim"],
             e_dim=self.hparams["e_dim"],
             traj_dim=0,  # On se fiche de l'orientation
-            n_scales=len(scale_types)
+            n_scales=len(scale_types) + 1 # + 1 because we add time as a scale
         )
 
         self.dim_theta = 2
@@ -78,8 +78,8 @@ class BFlow(pl.LightningModule):
         x.adj_t = x.adj_t.set_value(E)
         x.x = X
         x.scales = scales
-        print("x.scales")
-        print(scales)
+        #print("x.scales")
+        #print(scales)
         # x.orientation = orientation
 
         assert x.x.shape[1] == self.hparams["x_dim"]
