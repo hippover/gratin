@@ -66,11 +66,14 @@ class TrajsEncoder2(nn.Module):
 
         x = self.pooling(x=x, batch=data.batch)
 
+        print(x.size())
+        
         if self.n_scales > 0:
             x = torch.cat((x, torch.log(data.scales + 1e-5)), dim=1)
         if self.traj_dim > 0:
             x = torch.cat((x, data.orientation), dim=1)
 
+        print(x.size())
         out = self.mlp(x)
 
         return out

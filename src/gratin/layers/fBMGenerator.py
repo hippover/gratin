@@ -42,7 +42,7 @@ class fBMGenerator(nn.Module):
 
         return C
 
-    def forward(self, alpha, tau):
+    def forward(self, alpha, tau,diffusion):
         # alpha : array de taille (BS)
         # tau : array de taille (BS)
         # T : int
@@ -54,6 +54,7 @@ class fBMGenerator(nn.Module):
         du = torch.randn(
             (BS, self.T - 1, self.dim), device=alpha.device, requires_grad=False
         )
+        du = du*(diffusion.view(BS,1,1).expand(du.size()))
 
         dx = L @ du
         return torch.cat(

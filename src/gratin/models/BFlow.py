@@ -43,15 +43,32 @@ class BFlow(pl.LightningModule):
             x_dim=self.hparams["x_dim"],
             e_dim=self.hparams["e_dim"],
             traj_dim=0,  # On se fiche de l'orientation
-            n_scales=0,  # On se fiche de la diffusivité
+            n_scales=len(scale_types)
         )
 
         self.dim_theta = 2
 
         self.MAE_alpha = MAE()
         self.MSE_tau = MSE()
+        self.MSE_diff = MSE()
 
         self.invertible_net = InvertibleNet(dim_theta=2, dim_x=latent_dim, n_blocks=1)
+
+    def make_theta(self,x):
+        if self.hparams["mode"] == "alpha_tau":
+            return torch.cat((x.alpha, x.log_tau), dim=1).float()
+        elif self.hparams["mode"] == "alpha_diff":
+            return torch.cat((x.alpha, x.log_diffusion), dim=1).float()
+        else:
+            raise NotImplementedError("Unknown mode %s" % self.hparams["mode"])
+    
+    def get_params(self,theta):
+        if self.hparams["mode"] == "alpha_tau":
+            return {"alpha": theta[:, 0].view(-1, 1), "log_tau": theta[:, 1].view(-1, 1)}
+        elif self.hparams["mode"] == "alpha_diff":
+            return {"alpha": theta[:, 0].view(-1, 1), "log_diffusion": theta[:, 1].view(-1, 1)}
+        else:
+            raise NotImplementedError("Unknown mode %s" % self.hparams["mode"])
 
     def forward(self, x, sample=False, n_repeats=1):
 
@@ -60,19 +77,21 @@ class BFlow(pl.LightningModule):
         )
         x.adj_t = x.adj_t.set_value(E)
         x.x = X
-        # x.scales = scales
+        x.scales = scales
+        print("x.scales")
+        print(scales)
         # x.orientation = orientation
 
         assert x.x.shape[1] == self.hparams["x_dim"]
         h = self.summary_net(x)
 
-        true_theta = torch.cat((x.alpha, x.log_tau), dim=1).float()
+        true_theta = self.make_theta(x)
 
         if not sample:
-
             z, log_J = self.invertible_net(true_theta, h, inverse=False)
             return z, log_J
-        if sample:
+
+        elif sample:
             z = torch.normal(
                 mean=0.0,
                 std=1.0,
@@ -96,30 +115,37 @@ class BFlow(pl.LightningModule):
 
         return {"loss": l}
 
+    def sample_step(self, batch):
+        theta, true_theta = self(batch, sample=True)
+        if self.hparams["mode"] == "alpha_tau":
+            self.MAE_alpha(theta[:, 0], true_theta[:, 0])
+            self.MSE_tau(theta[:, 1], true_theta[:, 1])
+        elif self.hparams["mode"] == "alpha_diff":
+            self.MAE_alpha(theta[:, 0], true_theta[:, 0])
+            self.MSE_diff(theta[:, 1], true_theta[:, 1])
+        preds = self.get_params(theta)
+        targets = self.get_params(true_theta)
+        return preds, targets
+
+    def log_metrics(self,step="test"):
+        if self.hparams["mode"] == "alpha_tau":
+            self.log("MAE_alpha_%s" % step, self.MAE_alpha, on_step=False, on_epoch=True)
+            self.log("MSE_tau_%s" % step, self.MSE_tau, on_step=False, on_epoch=True)
+        elif self.hparams["mode"] == "alpha_diff":
+            self.log("MAE_alpha_%s" % step, self.MAE_alpha, on_step=False, on_epoch=True)
+            self.log("MSE_diff_%s" % step, self.MSE_diff, on_step=False, on_epoch=True)
+
     def test_step(self, batch, batch_idx):
-        theta = self(batch, sample=True)
-        self.MAE_alpha(theta[:, 0], batch.alpha[:, 0])
-        self.MSE_tau(theta[:, 1], batch.log_tau[:, 0])
-        self.log("MAE_alpha_test", self.MAE_alpha, on_step=False, on_epoch=True)
-        self.log("MSE_tau_test", self.MSE_tau, on_step=False, on_epoch=True)
-        targets = {"alpha": batch.alpha, "log_tau": batch.log_tau}
-        preds = {"alpha": theta[:, 0].view(-1, 1), "log_tau": theta[:, 1].view(-1, 1)}
+        preds, targets = self.sample_step(batch)
+        self.log_metrics(step="test")
         return {"targets": targets, "preds": preds}
 
     def on_test_epoch_end(self):
         self.logger.log_hyperparams(self.hparams)
 
     def validation_step(self, batch, batch_idx):
-        theta, true_theta = self(batch, sample=True)
-        self.MAE_alpha(theta[:, 0], true_theta[:, 0])
-        self.MSE_tau(theta[:, 1], true_theta[:, 1])
-        self.log("MAE_alpha_val", self.MAE_alpha, on_step=False, on_epoch=True)
-        self.log("MSE_tau_val", self.MSE_tau, on_step=False, on_epoch=True)
-        preds = {"alpha": theta[:, 0].view(-1, 1), "log_tau": theta[:, 1].view(-1, 1)}
-        targets = {
-            "alpha": true_theta[:, 0].view(-1, 1),
-            "log_tau": true_theta[:, 1].view(-1, 1),
-        }
+        preds, targets = self.sample_step(batch)
+        self.log_metrics(step="val")
         return {"targets": targets, "preds": preds}
 
     def configure_optimizers(self):
@@ -131,7 +157,7 @@ class BFlow(pl.LightningModule):
 
 
 class BFlowFBM(BFlow):
-    def __init__(self, tau_range, alpha_range, T, degree, **kwargs):
+    def __init__(self, tau_range, alpha_range, T, degree, mode="alpha_tau", **kwargs):
 
         super(BFlowFBM, self).__init__(
             **kwargs,
@@ -139,6 +165,7 @@ class BFlowFBM(BFlow):
             alpha_range=alpha_range,
             T=T,
             degree=degree,
+            mode=mode, # either "alpha_tau" or "alpha_diff"
         )
         self.generator = fBMGenerator(T=self.hparams["T"], dim=self.hparams["dim"])
 
@@ -147,17 +174,28 @@ class BFlowFBM(BFlow):
         # Si x ne contient pas de trajectoires, on en génère
         if torch.isnan(x.pos).sum() > 0:
             BS = torch.max(x.batch) + 1
-            log_tau = torch.rand(BS, device="cuda") * (
-                np.log10(self.hparams["tau_range"][1])
-                - np.log10(self.hparams["tau_range"][0])
-            ) + np.log10(self.hparams["tau_range"][0])
-            tau = torch.pow(10.0, log_tau)
+
+            # ALPHA
             alpha = (
                 torch.rand(BS, device="cuda")
                 * (self.hparams["alpha_range"][1] - self.hparams["alpha_range"][0])
                 + self.hparams["alpha_range"][0]
             )
-            pos = self.generator(alpha, tau)
+
+            # TAU if needed
+            if self.hparams["mode"] == "alpha_tau":
+                log_tau = torch.rand(BS, device="cuda") * (
+                    np.log10(self.hparams["tau_range"][1])
+                    - np.log10(self.hparams["tau_range"][0])
+                ) + np.log10(self.hparams["tau_range"][0])
+            elif self.hparams["mode"] == "alpha_diff":
+                log_tau = torch.ones_like(alpha)*np.log10(self.hparams["T"])
+            tau = torch.pow(10.0, log_tau)
+            
+            # DIFFUSION
+            log_diffusion = torch.rand(BS,device="cuda")*4 - 2
+            diffusion = torch.pow(10.0,log_diffusion)
+            pos = self.generator(alpha, tau,diffusion)
             x = batch_from_positions(
                 pos,
                 N=BS,
@@ -167,5 +205,6 @@ class BFlowFBM(BFlow):
             )
             x.alpha = alpha.view(-1, 1)
             x.log_tau = log_tau.view(-1, 1)
+            x.log_diffusion = log_diffusion.view(-1,1)
 
         return super().forward(x, sample=sample, n_repeats=n_repeats)
