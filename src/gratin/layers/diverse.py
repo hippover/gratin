@@ -98,7 +98,9 @@ def batch_from_sub_batches(sub_batches):
     nodes_offset = 0
     edge_indices = []
 
-    other_keys = list(set(sub_batches[0].keys) - set(["pos"]))
+    assert "edge_index" in sub_batches[0].keys
+
+    other_keys = list(set(sub_batches[0].keys) - set(["pos","ptr","edge_index"]))
     other_keys_dict = {}
     for k in other_keys:
         other_keys_dict[k] = []
@@ -128,7 +130,11 @@ def batch_from_sub_batches(sub_batches):
     new_batch = Batch(batch=batch, pos=pos, adj_t=adj_t)
 
     for k in other_keys:
-        new_batch[k] = torch.cat(other_keys_dict[k], dim=0)
+        try:
+            new_batch[k] = torch.cat(other_keys_dict[k], dim=0)
+        except Exception as e:
+            print("key = %s" % k)
+            raise e
 
     return new_batch
 
