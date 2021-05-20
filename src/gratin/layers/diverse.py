@@ -83,10 +83,52 @@ def batch_from_positions(pos, N, L, D, degree):
         * L
     )
     edge_index += torch.stack((shift, shift), dim=0)
-    adj_t = SparseTensor(col=edge_index[0], row=edge_index[1])
+    # adj_t = SparseTensor(col=edge_index[0], row=edge_index[1])
 
-    x_pred = Batch(batch=batch, pos=x_pos, adj_t=adj_t)
+    x_pred = Batch(batch=batch, pos=x_pos, edge_index=edge_index)
     return x_pred
+
+
+def batch_from_sub_batches(sub_batches):
+    pos_vectors = []
+    edge_index_offset = 0
+    batch_offset = 0
+    batch_vectors = []
+    nodes_offset = 0
+    edge_indices = []
+
+    other_keys = list(set(sub_batches[0].keys) - set(["pos"]))
+    other_keys_dict = {}
+    for k in other_keys:
+        other_keys_dict[k] = []
+
+    for batch in sub_batches:
+        B = batch.batch + batch_offset
+        batch_vectors.append(B)
+        batch_offset += torch.max(batch.batch) + 1
+
+        pos_vectors.append(batch.pos)
+
+        e = batch.edge_index + nodes_offset
+        edge_indices.append(e)
+        nodes_offset += batch.pos.shape[0]
+
+        for k in other_keys:
+            other_keys_dict[k].append(batch[k])
+
+    edge_index = torch.cat(edge_indices, dim=1)
+    pos = torch.cat(pos_vectors, dim=0)
+    batch = torch.cat(batch_vectors, dim=0)
+
+    assert torch.max(edge_index) == pos.shape[0] - 1
+
+    adj_t = SparseTensor(col=edge_index[0], row=edge_index[1])
+    new_batch = Batch(batch=batch, pos=pos, adj_t=adj_t)
+
+    for k in other_keys:
+        new_batch[k] = torch.cat(other_keys_dict[k], dim=0)
+
+    return new_batch
 
 
 class AlphaPredictor(nn.Module):

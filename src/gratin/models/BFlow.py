@@ -7,7 +7,7 @@ from pytorch_lightning.metrics import ExplainedVariance as EV
 import torch.nn as nn
 import torch
 from functools import partial
-from ..layers.diverse import batch_from_positions
+from ..layers.diverse import batch_from_positions, batch_from_sub_batches
 from ..layers.features_init import *
 from ..training.network_tools import L2_loss, Category_loss, is_concerned
 from ..data.data_classes import DataModule
@@ -41,9 +41,18 @@ class BFlowFBM(pl.LightningModule):
         e_dim = TrajsFeatures.e_dim(scale_types)
         self.save_hyperparameters({"x_dim": x_dim, "e_dim": e_dim})
 
-        self.T_values = np.logspace(
-            1, np.log10(self.hparams["T"]), dtype=int, num=n_lengths
-        )
+        if self.hparams["mode"] == "alpha_tau":
+            self.T_values = [self.hparams["T"]]
+        elif self.hparams["mode"] == "alpha_diff":
+            self.T_values = np.logspace(
+                1,
+                np.log10(self.hparams["T"]),
+                dtype=int,
+                num=n_lengths,
+            )
+        else:
+            raise NotImplementedError("Mode inconnu : %s" % mode)
+
         self.generator = fBMGenerator(dim=self.hparams["dim"])
 
         self.features_maker = TrajsFeatures()
@@ -68,6 +77,8 @@ class BFlowFBM(pl.LightningModule):
         self.invertible_net = InvertibleNet(dim_theta=2, dim_x=latent_dim, n_blocks=1)
 
         self.norm_dist = torch.distributions.normal.Normal(0.0, 1, validate_args=None)
+
+        print(self.hparams)
 
     def scale(self, param, range, inverse):
         m, M = range
@@ -124,41 +135,47 @@ class BFlowFBM(pl.LightningModule):
 
         # Si x ne contient pas de trajectoires, on en génère
         if torch.isnan(x.pos).sum() > 0:
-            T = self.T_values[batch_idx % len(self.T_values)]
+            batches = []
             BS = torch.max(x.batch) + 1
+            SBS = BS // len(self.T_values)
+            for T in self.T_values:
+                # ALPHA
+                alpha = (
+                    torch.rand(SBS, device="cuda")
+                    * (self.hparams["alpha_range"][1] - self.hparams["alpha_range"][0])
+                    + self.hparams["alpha_range"][0]
+                )
 
-            # ALPHA
-            alpha = (
-                torch.rand(BS, device="cuda")
-                * (self.hparams["alpha_range"][1] - self.hparams["alpha_range"][0])
-                + self.hparams["alpha_range"][0]
-            )
+                # TAU if needed
+                if self.hparams["mode"] == "alpha_tau":
+                    log_tau = torch.rand(SBS, device="cuda") * (
+                        np.log10(self.hparams["tau_range"][1])
+                        - np.log10(self.hparams["tau_range"][0])
+                    ) + np.log10(self.hparams["tau_range"][0])
+                elif self.hparams["mode"] == "alpha_diff":
+                    log_tau = torch.ones_like(alpha) * np.log10(T)
+                tau = torch.pow(10.0, log_tau)
+                # Make sure that tau is not larger than T
+                # tau = torch.where(tau > T, T, tau)
 
-            # TAU if needed
-            if self.hparams["mode"] == "alpha_tau":
-                log_tau = torch.rand(BS, device="cuda") * (
-                    np.log10(self.hparams["tau_range"][1])
-                    - np.log10(self.hparams["tau_range"][0])
-                ) + np.log10(self.hparams["tau_range"][0])
-            elif self.hparams["mode"] == "alpha_diff":
-                log_tau = torch.ones_like(alpha) * np.log10(T)
-            tau = torch.pow(10.0, log_tau)
+                # DIFFUSION
+                log_diffusion = torch.rand(SBS, device="cuda") * 4 - 2
+                diffusion = torch.pow(10.0, log_diffusion)
 
-            # DIFFUSION
-            log_diffusion = torch.rand(BS, device="cuda") * 4 - 2
-            diffusion = torch.pow(10.0, log_diffusion)
+                pos = self.generator(alpha, tau, diffusion, T)
+                x = batch_from_positions(
+                    pos,
+                    N=SBS,
+                    L=T,
+                    D=self.hparams["dim"],
+                    degree=self.hparams["degree"],
+                )
+                x.alpha = alpha.view(-1, 1)
+                x.log_tau = log_tau.view(-1, 1)
+                x.log_diffusion = log_diffusion.view(-1, 1)
+            batches.append(x)
 
-            pos = self.generator(alpha, tau, diffusion, T)
-            x = batch_from_positions(
-                pos,
-                N=BS,
-                L=T,
-                D=self.hparams["dim"],
-                degree=self.hparams["degree"],
-            )
-            x.alpha = alpha.view(-1, 1)
-            x.log_tau = log_tau.view(-1, 1)
-            x.log_diffusion = log_diffusion.view(-1, 1)
+        x = batch_from_sub_batches(batches)
 
         # NORMAL FORWARD PASS
 
@@ -205,8 +222,8 @@ class BFlowFBM(pl.LightningModule):
 
         return {"loss": l}
 
-    def sample_step(self, batch):
-        theta, true_theta = self(batch, sample=True)
+    def sample_step(self, batch, batch_idx):
+        theta, true_theta = self(batch, batch_idx=batch_idx, sample=True)
         if self.hparams["mode"] == "alpha_tau":
             self.MAE_alpha(
                 self.scale_alpha(theta[:, 0], inverse=True),
@@ -242,7 +259,7 @@ class BFlowFBM(pl.LightningModule):
             self.log("MSE_diff_%s" % step, self.MSE_diff, on_step=False, on_epoch=True)
 
     def test_step(self, batch, batch_idx):
-        preds, targets = self.sample_step(batch)
+        preds, targets = self.sample_step(batch, batch_idx=batch_idx)
         self.log_metrics(step="test")
         return {"targets": targets, "preds": preds}
 
@@ -250,7 +267,7 @@ class BFlowFBM(pl.LightningModule):
         self.logger.log_hyperparams(self.hparams)
 
     def validation_step(self, batch, batch_idx):
-        preds, targets = self.sample_step(batch)
+        preds, targets = self.sample_step(batch, batch_idx=batch_idx)
         self.log_metrics(step="val")
         return {"targets": targets, "preds": preds}
 
