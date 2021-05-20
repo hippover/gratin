@@ -4,9 +4,8 @@ import numpy as np
 
 
 class fBMGenerator(nn.Module):
-    def __init__(self, T, dim, **kwargs):
+    def __init__(self, dim, **kwargs):
         self.dim = dim
-        self.T = T
         super(fBMGenerator, self).__init__(**kwargs)
 
     def f_(self, DT, alpha):
@@ -42,19 +41,19 @@ class fBMGenerator(nn.Module):
 
         return C
 
-    def forward(self, alpha, tau,diffusion):
+    def forward(self, alpha, tau, diffusion, T):
         # alpha : array de taille (BS)
         # tau : array de taille (BS)
         # T : int
         BS = alpha.shape[0]
 
-        C = self.get_dx_cov(alpha, T=self.T, tau=tau, lam=1.0)
+        C = self.get_dx_cov(alpha, T=T, tau=tau, lam=1.0)
         L = torch.cholesky(C)
 
         du = torch.randn(
-            (BS, self.T - 1, self.dim), device=alpha.device, requires_grad=False
+            (BS, T - 1, self.dim), device=alpha.device, requires_grad=False
         )
-        du = du*(diffusion.view(BS,1,1).expand(du.size()))
+        du = du * (diffusion.view(BS, 1, 1).expand(du.size()))
 
         dx = L @ du
         return torch.cat(
