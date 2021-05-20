@@ -80,6 +80,24 @@ class BFlowFBM(pl.LightningModule):
 
         print(self.hparams)
 
+        self.check_eigenvalues()
+
+    def check_eigenvalues(self):
+
+        # On vérifie qu'aux extrémités de sintervalles, la matrice de corrélation est positive
+
+        a_min = torch.ones((1),device="cuda")*self.hparams["alpha_range"][0]
+        a_max = torch.ones((1),device="cuda")*self.hparams["alpha_range"][1]
+        tau_min = torch.ones((1),device="cuda")*self.hparams["tau_range"][0]
+        tau_max = torch.ones((1),device="cuda")*self.hparams["tau_range"][1]
+        diffusion = torch.ones_like(tau_min)
+
+        self.generator(a_min,tau_min,diffusion,T=self.hparams["T"])
+        self.generator(a_max,tau_min,diffusion,T=self.hparams["T"])
+        self.generator(a_min,tau_max,diffusion,T=self.hparams["T"])
+        self.generator(a_max,tau_max,diffusion,T=self.hparams["T"])
+        print("Checked that correlation matrices are pos-def")
+
     def scale(self, param, range, inverse):
         m, M = range
         if inverse == False:
