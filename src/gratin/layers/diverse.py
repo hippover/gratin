@@ -86,6 +86,7 @@ def batch_from_positions(pos, N, L, D, degree):
     # adj_t = SparseTensor(col=edge_index[0], row=edge_index[1])
 
     x_pred = Batch(batch=batch, pos=x_pos, edge_index=edge_index)
+
     return x_pred
 
 
@@ -121,6 +122,7 @@ def batch_from_sub_batches(sub_batches):
     batch = torch.cat(batch_vectors, dim=0)
 
     assert torch.max(edge_index) == pos.shape[0] - 1
+    assert torch.min(edge_index[1:, 1] - edge_index[:-1, 1]) >= 0
 
     adj_t = SparseTensor(col=edge_index[0], row=edge_index[1])
     new_batch = Batch(batch=batch, pos=pos, adj_t=adj_t)

@@ -131,51 +131,56 @@ class BFlowFBM(pl.LightningModule):
         else:
             raise NotImplementedError("Unknown mode %s" % self.hparams["mode"])
 
+    def generate_batch_like(self, x):
+        batches = []
+        BS = torch.max(x.batch) + 1
+        SBS = BS // len(self.T_values)
+        for T in self.T_values:
+            # ALPHA
+            alpha = (
+                torch.rand(SBS, device="cuda")
+                * (self.hparams["alpha_range"][1] - self.hparams["alpha_range"][0])
+                + self.hparams["alpha_range"][0]
+            )
+
+            # TAU if needed
+            if self.hparams["mode"] == "alpha_tau":
+                log_tau = torch.rand(SBS, device="cuda") * (
+                    np.log10(self.hparams["tau_range"][1])
+                    - np.log10(self.hparams["tau_range"][0])
+                ) + np.log10(self.hparams["tau_range"][0])
+            elif self.hparams["mode"] == "alpha_diff":
+                log_tau = torch.ones_like(alpha) * np.log10(T)
+            tau = torch.pow(10.0, log_tau)
+            # Make sure that tau is not larger than T
+            # tau = torch.where(tau > T, T, tau)
+
+            # DIFFUSION
+            log_diffusion = torch.rand(SBS, device="cuda") * 4 - 2
+            diffusion = torch.pow(10.0, log_diffusion)
+
+            pos = self.generator(alpha, tau, diffusion, T)
+            x = batch_from_positions(
+                pos,
+                N=SBS,
+                L=T,
+                D=self.hparams["dim"],
+                degree=self.hparams["degree"],
+            )
+            x.alpha = alpha.view(-1, 1)
+            x.log_tau = log_tau.view(-1, 1)
+            x.log_diffusion = log_diffusion.view(-1, 1)
+            batches.append(x)
+
+        x = batch_from_sub_batches(batches)
+        return x
+
     def forward(self, x, sample=False, n_repeats=1, batch_idx=0):
 
         # Si x ne contient pas de trajectoires, on en génère
         if torch.isnan(x.pos).sum() > 0:
-            batches = []
-            BS = torch.max(x.batch) + 1
-            SBS = BS // len(self.T_values)
-            for T in self.T_values:
-                # ALPHA
-                alpha = (
-                    torch.rand(SBS, device="cuda")
-                    * (self.hparams["alpha_range"][1] - self.hparams["alpha_range"][0])
-                    + self.hparams["alpha_range"][0]
-                )
-
-                # TAU if needed
-                if self.hparams["mode"] == "alpha_tau":
-                    log_tau = torch.rand(SBS, device="cuda") * (
-                        np.log10(self.hparams["tau_range"][1])
-                        - np.log10(self.hparams["tau_range"][0])
-                    ) + np.log10(self.hparams["tau_range"][0])
-                elif self.hparams["mode"] == "alpha_diff":
-                    log_tau = torch.ones_like(alpha) * np.log10(T)
-                tau = torch.pow(10.0, log_tau)
-                # Make sure that tau is not larger than T
-                # tau = torch.where(tau > T, T, tau)
-
-                # DIFFUSION
-                log_diffusion = torch.rand(SBS, device="cuda") * 4 - 2
-                diffusion = torch.pow(10.0, log_diffusion)
-
-                pos = self.generator(alpha, tau, diffusion, T)
-                x = batch_from_positions(
-                    pos,
-                    N=SBS,
-                    L=T,
-                    D=self.hparams["dim"],
-                    degree=self.hparams["degree"],
-                )
-                x.alpha = alpha.view(-1, 1)
-                x.log_tau = log_tau.view(-1, 1)
-                x.log_diffusion = log_diffusion.view(-1, 1)
-            batches.append(x)
-
-        x = batch_from_sub_batches(batches)
+            x = self.generate_batch_like(x)
+            assert torch.isnan(x.pos).sum() == 0
 
         # NORMAL FORWARD PASS
 
