@@ -86,16 +86,16 @@ class BFlowFBM(pl.LightningModule):
 
         # On vérifie qu'aux extrémités de sintervalles, la matrice de corrélation est positive
 
-        a_min = torch.ones((1),device="cuda")*self.hparams["alpha_range"][0]
-        a_max = torch.ones((1),device="cuda")*self.hparams["alpha_range"][1]
-        tau_min = torch.ones((1),device="cuda")*self.hparams["tau_range"][0]
-        tau_max = torch.ones((1),device="cuda")*self.hparams["tau_range"][1]
+        a_min = torch.ones((1), device="cuda") * self.hparams["alpha_range"][0]
+        a_max = torch.ones((1), device="cuda") * self.hparams["alpha_range"][1]
+        tau_min = torch.ones((1), device="cuda") * self.hparams["tau_range"][0]
+        tau_max = torch.ones((1), device="cuda") * self.hparams["tau_range"][1]
         diffusion = torch.ones_like(tau_min)
 
-        self.generator(a_min,tau_min,diffusion,T=self.hparams["T"])
-        self.generator(a_max,tau_min,diffusion,T=self.hparams["T"])
-        self.generator(a_min,tau_max,diffusion,T=self.hparams["T"])
-        self.generator(a_max,tau_max,diffusion,T=self.hparams["T"])
+        self.generator(a_min, tau_min, diffusion, T=self.hparams["T"])
+        self.generator(a_max, tau_min, diffusion, T=self.hparams["T"])
+        self.generator(a_min, tau_max, diffusion, T=self.hparams["T"])
+        self.generator(a_max, tau_max, diffusion, T=self.hparams["T"])
         print("Checked that correlation matrices are pos-def")
 
     def scale(self, param, range, inverse):
@@ -152,7 +152,9 @@ class BFlowFBM(pl.LightningModule):
     def generate_batch_like(self, x):
         batches = []
         BS = torch.max(x.batch) + 1
+        # print("BS = %d" % BS)
         SBS = BS // len(self.T_values)
+        # print("SBS = %s" % SBS)
         for T in self.T_values:
             # ALPHA
             alpha = (
@@ -178,6 +180,9 @@ class BFlowFBM(pl.LightningModule):
             diffusion = torch.pow(10.0, log_diffusion)
 
             pos = self.generator(alpha, tau, diffusion, T)
+            # print("Generating T = %d" % T)
+            # print(pos.shape)
+
             x = batch_from_positions(
                 pos,
                 N=SBS,
@@ -188,9 +193,15 @@ class BFlowFBM(pl.LightningModule):
             x.alpha = alpha.view(-1, 1)
             x.log_tau = log_tau.view(-1, 1)
             x.log_diffusion = log_diffusion.view(-1, 1)
+            assert x.batch.shape[0] == SBS * T
             batches.append(x)
 
+        # print("num of sub_batches %d " % len(batches))
+
         x = batch_from_sub_batches(batches)
+
+        # print(x.batch)
+        assert (torch.max(x.batch) + 1) == SBS * len(self.T_values)
         return x
 
     def forward(self, x, sample=False, n_repeats=1, batch_idx=0):

@@ -100,15 +100,18 @@ def batch_from_sub_batches(sub_batches):
 
     assert "edge_index" in sub_batches[0].keys
 
-    other_keys = list(set(sub_batches[0].keys) - set(["pos","ptr","edge_index"]))
+    other_keys = list(
+        set(sub_batches[0].keys) - set(["pos", "ptr", "edge_index", "batch"])
+    )
     other_keys_dict = {}
+
     for k in other_keys:
         other_keys_dict[k] = []
 
     for batch in sub_batches:
         B = batch.batch + batch_offset
         batch_vectors.append(B)
-        batch_offset += torch.max(batch.batch) + 1
+        batch_offset = torch.max(B) + 1
 
         pos_vectors.append(batch.pos)
 
