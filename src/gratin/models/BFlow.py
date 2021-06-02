@@ -88,7 +88,7 @@ class BFlowFBM(pl.LightningModule):
 
     def check_eigenvalues(self):
 
-        # On vérifie qu'aux extrémités de sintervalles, la matrice de corrélation est positive
+        # On vérifie qu'aux extrémités des intervalles, la matrice de corrélation est positive
         OK = False
         a_range_init = self.alpha_range
         while not OK:
@@ -104,7 +104,7 @@ class BFlowFBM(pl.LightningModule):
                     self.generator(a_min, tau_min, diffusion, T=T)
                     self.generator(a_min, tau_max, diffusion, T=T)
             except Exception as e:
-                self.alpha_range[0] += 0.05
+                self.alpha_range = (self.alpha_range[0] + 0.05, self.alpha_range[1])
                 print(e)
                 continue
             try:
@@ -112,7 +112,7 @@ class BFlowFBM(pl.LightningModule):
                     self.generator(a_max, tau_min, diffusion, T=T)
                     self.generator(a_max, tau_max, diffusion, T=T)
             except Exception as e:
-                self.alpha_range[1] -= 0.05
+                self.alpha_range = (self.alpha_range[0], self.alpha_range[1] - 0.05)
                 print(e)
                 continue
             OK = True

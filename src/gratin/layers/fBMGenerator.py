@@ -22,7 +22,7 @@ class fBMGenerator(nn.Module):
         )
         return R
 
-    def get_dx_cov(self, alpha, T, tau=np.inf, lam=1):
+    def get_dx_cov(self, alpha, T, tau=np.inf, lam=1.0):
 
         BS = alpha.shape[0]
         t = torch.arange(T - 1, device=alpha.device, requires_grad=False).view(1, -1)
@@ -35,7 +35,7 @@ class fBMGenerator(nn.Module):
         j = torch.transpose(t, 1, 2)
         k = j - i
 
-        C = self.f(k, alpha.view(-1, 1, 1), tau.view(-1, 1, 1), lam=lam)
+        C = self.f(k, alpha.view(-1, 1, 1).double(), tau.view(-1, 1, 1), lam=lam)
         # min_EV = np.min(np.linalg.eigvals(C))
         # assert min_EV > 0.0, "min EV %.2f, alpha = %.2f, tau = %d" % (min_EV, alpha, tau)
 
