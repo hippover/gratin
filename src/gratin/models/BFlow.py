@@ -79,6 +79,9 @@ class BFlowFBM(pl.LightningModule):
         self.norm_dist = torch.distributions.normal.Normal(0.0, 1, validate_args=None)
 
         self.alpha_range = self.hparams["alpha_range"]
+        self.tau_range = self.hparams["tau_range"]
+        if self.hparams["mode"] != "alpha_tau":
+            self.tau_range = (self.hparams["T"], self.hparams["T"] + 1)
         self.check_eigenvalues()
 
         print(self.hparams)
@@ -91,6 +94,7 @@ class BFlowFBM(pl.LightningModule):
         while not OK:
             a_min = torch.ones((1), device="cuda") * self.alpha_range[0]
             a_max = torch.ones((1), device="cuda") * self.alpha_range[1]
+
             tau_min = torch.ones((1), device="cuda") * self.tau_range[0]
             tau_max = torch.ones((1), device="cuda") * self.tau_range[1]
             diffusion = torch.ones_like(tau_min)
@@ -99,7 +103,7 @@ class BFlowFBM(pl.LightningModule):
                 for T in self.T_values:
                     self.generator(a_min, tau_min, diffusion, T=T)
                     self.generator(a_min, tau_max, diffusion, T=T)
-            except Exception as e: 
+            except Exception as e:
                 self.alpha_range[0] += 0.05
                 print(e)
                 continue
@@ -123,8 +127,8 @@ class BFlowFBM(pl.LightningModule):
         m, M = range
         # To avoid infinity, we slightly widen the range
         range_size = M - m
-        m -= 0.02*range_size
-        M += 0.02*range_size
+        m -= 0.05 * range_size
+        M += 0.05 * range_size
         if inverse == False:
             return self.norm_dist.icdf((param - m) / (M - m))
         elif inverse == True:
@@ -195,7 +199,7 @@ class BFlowFBM(pl.LightningModule):
                     - np.log10(self.hparams["tau_range"][0])
                 ) + np.log10(self.hparams["tau_range"][0])
             elif self.hparams["mode"] == "alpha_diff":
-                log_tau = torch.ones_like(alpha) * np.log10(T)+1
+                log_tau = torch.ones_like(alpha) * np.log10(T) + 1
             tau = torch.pow(10.0, log_tau)
             # Make sure that tau is not larger than T
             # tau = torch.where(tau > T, T, tau)
@@ -218,6 +222,7 @@ class BFlowFBM(pl.LightningModule):
             x.alpha = alpha.view(-1, 1)
             x.log_tau = log_tau.view(-1, 1)
             x.log_diffusion = log_diffusion.view(-1, 1)
+            x.length = torch.ones_like(x.alpha) * T
             assert x.batch.shape[0] == SBS * T
             batches.append(x)
 
@@ -229,7 +234,7 @@ class BFlowFBM(pl.LightningModule):
         assert (torch.max(x.batch) + 1) == SBS * len(self.T_values)
         return x
 
-    def forward(self, x, sample=False, n_repeats=1, batch_idx=0):
+    def forward(self, x, sample=False, n_repeats=1, batch_idx=0, return_input=False):
 
         # Si x ne contient pas de trajectoires, on en génère
         if torch.isnan(x.pos).sum() > 0:
@@ -269,7 +274,10 @@ class BFlowFBM(pl.LightningModule):
             h = h.repeat_interleave(n_repeats, 0)
 
             theta = self.invertible_net(z, h, inverse=True)
-            return theta, true_theta
+            if not return_input:
+                return theta, true_theta
+            else:
+                return theta, true_theta, x
 
     def training_step(self, batch, batch_idx):
         z, log_J = self(batch, batch_idx=batch_idx)
