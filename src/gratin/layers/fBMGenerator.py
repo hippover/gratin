@@ -39,7 +39,7 @@ class fBMGenerator(nn.Module):
         # min_EV = np.min(np.linalg.eigvals(C))
         # assert min_EV > 0.0, "min EV %.2f, alpha = %.2f, tau = %d" % (min_EV, alpha, tau)
 
-        return C
+        return C.double()
 
     def forward(self, alpha, tau, diffusion, T):
         # alpha : array de taille (BS)
@@ -49,7 +49,7 @@ class fBMGenerator(nn.Module):
 
         C = self.get_dx_cov(alpha, T=T, tau=tau, lam=1.0)
         try:
-            L = torch.cholesky(C)
+            L = torch.cholesky(C).float()
         except Exception as e:
             print("alpha =")
             print(alpha)
@@ -59,7 +59,6 @@ class fBMGenerator(nn.Module):
             print(T)
             print(e)
             raise
-
 
         du = torch.randn(
             (BS, T - 1, self.dim), device=alpha.device, requires_grad=False
