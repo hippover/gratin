@@ -151,7 +151,7 @@ class TrajsFeatures(nn.Module):
         # Make a tensor with scales and L (to be used to infer D)
         u = scatter(dr, B, reduce="mean", dim=0)
         u = u / torch.sqrt(1e-5 + torch.sum(u ** 2, dim=1).view(-1, 1))
-        scales = torch.stack(scales + [torch.log(L)], dim=1)
+        scales = torch.stack(scales + [torch.log(L.float())], dim=1)
 
         orientation = u
 
