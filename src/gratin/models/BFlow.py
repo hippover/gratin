@@ -74,39 +74,64 @@ class BFlowFBM(pl.LightningModule):
         self.MSE_tau = MSE()
         self.MSE_diff = MSE()
 
-        self.invertible_net = InvertibleNet(dim_theta=2, dim_x=latent_dim, n_blocks=1)
+        self.invertible_net = InvertibleNet(dim_theta=2, dim_x=latent_dim, n_blocks=3)
 
         self.norm_dist = torch.distributions.normal.Normal(0.0, 1, validate_args=None)
 
-        print(self.hparams)
-
+        self.alpha_range = self.hparams["alpha_range"]
         self.check_eigenvalues()
+
+        print(self.hparams)
 
     def check_eigenvalues(self):
 
         # On vérifie qu'aux extrémités de sintervalles, la matrice de corrélation est positive
+        OK = False
+        a_range_init = self.alpha_range
+        while not OK:
+            a_min = torch.ones((1), device="cuda") * self.alpha_range[0]
+            a_max = torch.ones((1), device="cuda") * self.alpha_range[1]
+            tau_min = torch.ones((1), device="cuda") * self.tau_range[0]
+            tau_max = torch.ones((1), device="cuda") * self.tau_range[1]
+            diffusion = torch.ones_like(tau_min)
 
-        a_min = torch.ones((1), device="cuda") * self.hparams["alpha_range"][0]
-        a_max = torch.ones((1), device="cuda") * self.hparams["alpha_range"][1]
-        tau_min = torch.ones((1), device="cuda") * self.hparams["tau_range"][0]
-        tau_max = torch.ones((1), device="cuda") * self.hparams["tau_range"][1]
-        diffusion = torch.ones_like(tau_min)
-
-        self.generator(a_min, tau_min, diffusion, T=self.hparams["T"])
-        self.generator(a_max, tau_min, diffusion, T=self.hparams["T"])
-        self.generator(a_min, tau_max, diffusion, T=self.hparams["T"])
-        self.generator(a_max, tau_max, diffusion, T=self.hparams["T"])
+            try:
+                for T in self.T_values:
+                    self.generator(a_min, tau_min, diffusion, T=T)
+                    self.generator(a_min, tau_max, diffusion, T=T)
+            except Exception as e: 
+                self.alpha_range[0] += 0.05
+                print(e)
+                continue
+            try:
+                for T in self.T_values:
+                    self.generator(a_max, tau_min, diffusion, T=T)
+                    self.generator(a_max, tau_max, diffusion, T=T)
+            except Exception as e:
+                self.alpha_range[1] -= 0.05
+                print(e)
+                continue
+            OK = True
+        a_range_end = self.alpha_range
         print("Checked that correlation matrices are pos-def")
+        print("alpha range changed from")
+        print(a_range_init)
+        print("to")
+        print(a_range_end)
 
     def scale(self, param, range, inverse):
         m, M = range
+        # To avoid infinity, we slightly widen the range
+        range_size = M - m
+        m -= 0.02*range_size
+        M += 0.02*range_size
         if inverse == False:
             return self.norm_dist.icdf((param - m) / (M - m))
         elif inverse == True:
             return self.norm_dist.cdf(param) * (M - m) + m
 
     def scale_alpha(self, alpha, inverse=False):
-        return self.scale(alpha, self.hparams["alpha_range"], inverse)
+        return self.scale(alpha, self.alpha_range, inverse)
 
     def scale_logtau(self, logtau, inverse=False):
         return self.scale(
@@ -159,8 +184,8 @@ class BFlowFBM(pl.LightningModule):
             # ALPHA
             alpha = (
                 torch.rand(SBS, device="cuda")
-                * (self.hparams["alpha_range"][1] - self.hparams["alpha_range"][0])
-                + self.hparams["alpha_range"][0]
+                * (self.alpha_range[1] - self.alpha_range[0])
+                + self.alpha_range[0]
             )
 
             # TAU if needed
@@ -170,7 +195,7 @@ class BFlowFBM(pl.LightningModule):
                     - np.log10(self.hparams["tau_range"][0])
                 ) + np.log10(self.hparams["tau_range"][0])
             elif self.hparams["mode"] == "alpha_diff":
-                log_tau = torch.ones_like(alpha) * np.log10(T)
+                log_tau = torch.ones_like(alpha) * np.log10(T)+1
             tau = torch.pow(10.0, log_tau)
             # Make sure that tau is not larger than T
             # tau = torch.where(tau > T, T, tau)

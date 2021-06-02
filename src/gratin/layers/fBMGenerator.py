@@ -48,7 +48,18 @@ class fBMGenerator(nn.Module):
         BS = alpha.shape[0]
 
         C = self.get_dx_cov(alpha, T=T, tau=tau, lam=1.0)
-        L = torch.cholesky(C)
+        try:
+            L = torch.cholesky(C)
+        except Exception as e:
+            print("alpha =")
+            print(alpha)
+            print("tau = ")
+            print(tau)
+            print("T = ")
+            print(T)
+            print(e)
+            raise
+
 
         du = torch.randn(
             (BS, T - 1, self.dim), device=alpha.device, requires_grad=False

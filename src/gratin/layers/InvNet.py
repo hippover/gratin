@@ -27,7 +27,7 @@ class ACB(nn.Module):
         self.t_2 = MLP([self.n_1 + dim_mu, self.n_1 + dim_mu, self.n_2])
         self.stable_s = stable_s
 
-        self.alpha = 4.0
+        self.alpha = 2.0
 
         # U = torch.normal(mean=0.0, std=1.0, size=(4, dim_theta))
         # X = torch.normal(mean=0.0, std=1.0, size=(4, dim_mu))
