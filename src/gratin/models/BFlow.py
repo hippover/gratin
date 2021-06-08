@@ -182,9 +182,13 @@ class BFlowFBM(pl.LightningModule):
         batches = []
         BS = torch.max(x.batch) + 1
         # print("BS = %d" % BS)
-        SBS = BS // len(self.T_values)
+        SBS_min = BS // len(self.T_values)
         # print("SBS = %s" % SBS)
         for T in self.T_values:
+            # On fait plus de trajectoires courtes que de longues,
+            # pour que chaque layer ait vu autant de messages venant de trajectoires courtes que de trajectoires longues
+            SBS = int(SBS_min * np.max(self.T_values) / T)
+            # print("T = %d, generating %d trajs" % (T, SBS))
             # ALPHA
             alpha = (
                 torch.rand(SBS, device="cuda")
@@ -230,8 +234,6 @@ class BFlowFBM(pl.LightningModule):
 
         x = batch_from_sub_batches(batches)
 
-        # print(x.batch)
-        assert (torch.max(x.batch) + 1) == SBS * len(self.T_values)
         return x
 
     def forward(self, x, sample=False, n_repeats=1, batch_idx=0, return_input=False):
@@ -295,21 +297,15 @@ class BFlowFBM(pl.LightningModule):
         preds = self.get_params(theta)
         targets = self.get_params(true_theta)
 
-        self.MAE_alpha(
-                preds["alpha"],
-                targets["alpha"]
-            )
+        self.MAE_alpha(preds["alpha"], targets["alpha"])
         if self.hparams["mode"] == "alpha_tau":
-            self.MSE_tau(
-                preds["log_tau"],
-                targets["log_tau"]
-            )
+            self.MSE_tau(preds["log_tau"], targets["log_tau"])
         elif self.hparams["mode"] == "alpha_diff":
             self.MSE_diff(
                 preds["log_diffusion"],
                 targets["log_diffusion"],
             )
-        
+
         return preds, targets
 
     def log_metrics(self, step="test"):

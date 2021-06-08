@@ -21,13 +21,41 @@ class ACB(nn.Module):
             torch.argsort(self.permutation), requires_grad=False
         )
 
-        self.s_1 = MLP([self.n_2 + dim_mu, self.n_2 + dim_mu, self.n_1])
-        self.t_1 = MLP([self.n_2 + dim_mu, self.n_2 + dim_mu, self.n_1])
-        self.s_2 = MLP([self.n_1 + dim_mu, self.n_1 + dim_mu, self.n_2])
-        self.t_2 = MLP([self.n_1 + dim_mu, self.n_1 + dim_mu, self.n_2])
+        self.s_1 = MLP(
+            [
+                self.n_2 + dim_mu,
+                self.n_2 + dim_mu + 32,
+                self.n_2 + dim_mu + 32,
+                self.n_1,
+            ]
+        )
+        self.t_1 = MLP(
+            [
+                self.n_2 + dim_mu,
+                self.n_2 + dim_mu + 32,
+                self.n_2 + dim_mu + 32,
+                self.n_1,
+            ]
+        )
+        self.s_2 = MLP(
+            [
+                self.n_1 + dim_mu,
+                self.n_1 + dim_mu + 32,
+                self.n_1 + dim_mu + 32,
+                self.n_2,
+            ]
+        )
+        self.t_2 = MLP(
+            [
+                self.n_1 + dim_mu,
+                self.n_1 + dim_mu + 32,
+                self.n_1 + dim_mu + 32,
+                self.n_2,
+            ]
+        )
         self.stable_s = stable_s
 
-        self.alpha = 2.
+        self.alpha = 2.0
 
         # U = torch.normal(mean=0.0, std=1.0, size=(4, dim_theta))
         # X = torch.normal(mean=0.0, std=1.0, size=(4, dim_mu))
