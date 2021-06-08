@@ -291,26 +291,25 @@ class BFlowFBM(pl.LightningModule):
 
     def sample_step(self, batch, batch_idx):
         theta, true_theta = self(batch, batch_idx=batch_idx, sample=True)
-        if self.hparams["mode"] == "alpha_tau":
-            self.MAE_alpha(
-                self.scale_alpha(theta[:, 0], inverse=True),
-                self.scale_alpha(true_theta[:, 0], inverse=True),
-            )
-            self.MSE_tau(
-                self.scale_logtau(theta[:, 1], inverse=True),
-                self.scale_logtau(true_theta[:, 1], inverse=True),
-            )
-        elif self.hparams["mode"] == "alpha_diff":
-            self.MAE_alpha(
-                self.scale_alpha(theta[:, 0], inverse=True),
-                self.scale_alpha(true_theta[:, 0], inverse=True),
-            )
-            self.MSE_diff(
-                self.scale_logdiff(theta[:, 1], inverse=True),
-                self.scale_logdiff(true_theta[:, 1], inverse=True),
-            )
+
         preds = self.get_params(theta)
         targets = self.get_params(true_theta)
+
+        self.MAE_alpha(
+                preds["alpha"],
+                targets["alpha"]
+            )
+        if self.hparams["mode"] == "alpha_tau":
+            self.MSE_tau(
+                preds["log_tau"],
+                targets["log_tau"]
+            )
+        elif self.hparams["mode"] == "alpha_diff":
+            self.MSE_diff(
+                preds["log_diffusion"],
+                targets["log_diffusion"],
+            )
+        
         return preds, targets
 
     def log_metrics(self, step="test"):
