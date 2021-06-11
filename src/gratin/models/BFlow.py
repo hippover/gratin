@@ -44,12 +44,15 @@ class BFlowFBM(pl.LightningModule):
         if self.hparams["mode"] == "alpha_tau":
             self.T_values = [self.hparams["T"]]
         elif self.hparams["mode"] == "alpha_diff":
-            self.T_values = np.logspace(
-                1,
-                np.log10(self.hparams["T"]),
-                dtype=int,
-                num=n_lengths,
-            )
+            # alternative 1 : sample T in log
+            # self.T_values = np.logspace(
+            #    1,
+            #    np.log10(self.hparams["T"]),
+            #    dtype=int,
+            #    num=n_lengths,
+            # )
+            # altetnative 2 : samlpe T uniformly
+            self.T_values = np.linspace(10, self.hparams["T"], dtype=int, num=n_lengths)
         else:
             raise NotImplementedError("Mode inconnu : %s" % mode)
 
@@ -187,7 +190,8 @@ class BFlowFBM(pl.LightningModule):
         for T in self.T_values:
             # On fait plus de trajectoires courtes que de longues,
             # pour que chaque layer ait vu autant de messages venant de trajectoires courtes que de trajectoires longues
-            SBS = int(SBS_min * np.max(self.T_values) / T)
+            # SBS = int(SBS_min * np.max(self.T_values) / T)
+            SBS = int(SBS_min)
             # print("T = %d, generating %d trajs" % (T, SBS))
             # ALPHA
             alpha = (
