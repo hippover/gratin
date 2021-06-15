@@ -14,7 +14,7 @@ from ..data.data_classes import DataModule
 from ..layers.encoders import *
 from ..layers.InvNet import InvertibleNet
 from ..layers.fBMGenerator import fBMGenerator
-from torch.optim.lr_scheduler import ExponentialLR
+from torch.optim.lr_scheduler import ExponentialLR, LambdaLR
 
 
 class BFlowFBM(pl.LightningModule):
@@ -127,6 +127,8 @@ class BFlowFBM(pl.LightningModule):
         print(a_range_end)
 
     def scale(self, param, range, inverse):
+        # bypass, no scaling
+        # return param
         m, M = range
         # To avoid infinity, we slightly widen the range
         range_size = M - m
@@ -285,19 +287,22 @@ class BFlowFBM(pl.LightningModule):
             else:
                 return theta, true_theta, x
 
-    def training_step(self, batch, batch_idx):
+    def training_step(self, batch, batch_idx, optimizer_idx=0):
         z, log_J = self(batch, batch_idx=batch_idx)
         z_norm2 = torch.sum(z ** 2, dim=1)
         l = torch.mean(0.5 * z_norm2 - log_J, dim=0)
-        self.log("training_loss", value=l, on_step=False, on_epoch=True)
-        self.log("z_norm", value=torch.mean(z_norm2), on_step=True)
-        self.log("log_J", value=torch.mean(log_J), on_step=True)
+        self.log("training_loss", value=l, on_step=False, on_epoch=True, prog_bar=True)
+        self.log("z_norm", value=torch.mean(z_norm2), on_step=True, prog_bar=True)
+        self.log("log_J", value=torch.mean(log_J), on_step=True, prog_bar=True)
 
         return {"loss": l}
 
     def sample_step(self, batch, batch_idx):
-        theta, true_theta = self(batch, batch_idx=batch_idx, sample=True)
-
+        n_repeats = 20
+        theta, true_theta = self(
+            batch, batch_idx=batch_idx, sample=True, n_repeats=n_repeats
+        )
+        true_theta = true_theta.repeat_interleave(n_repeats, 0)
         preds = self.get_params(theta)
         targets = self.get_params(true_theta)
 
@@ -315,22 +320,54 @@ class BFlowFBM(pl.LightningModule):
     def log_metrics(self, step="test"):
         if self.hparams["mode"] == "alpha_tau":
             self.log(
-                "MAE_alpha_%s" % step, self.MAE_alpha, on_step=False, on_epoch=True
+                "hp/MAE_alpha_%s" % step,
+                self.MAE_alpha,
+                on_step=False,
+                on_epoch=True,
+                prog_bar=True,
             )
-            self.log("MSE_tau_%s" % step, self.MSE_tau, on_step=False, on_epoch=True)
+            self.log(
+                "hp/MSE_tau_%s" % step,
+                self.MSE_tau,
+                on_step=False,
+                on_epoch=True,
+                prog_bar=True,
+            )
         elif self.hparams["mode"] == "alpha_diff":
             self.log(
-                "MAE_alpha_%s" % step, self.MAE_alpha, on_step=False, on_epoch=True
+                "hp/MAE_alpha_%s" % step,
+                self.MAE_alpha,
+                on_step=False,
+                on_epoch=True,
+                prog_bar=True,
             )
-            self.log("MSE_diff_%s" % step, self.MSE_diff, on_step=False, on_epoch=True)
+            self.log(
+                "hp/MSE_diff_%s" % step,
+                self.MSE_diff,
+                on_step=False,
+                on_epoch=True,
+                prog_bar=True,
+            )
 
     def test_step(self, batch, batch_idx):
         preds, targets = self.sample_step(batch, batch_idx=batch_idx)
         self.log_metrics(step="test")
         return {"targets": targets, "preds": preds}
 
-    def on_test_epoch_end(self):
-        self.logger.log_hyperparams(self.hparams)
+    def on_train_start(self):
+        self.logger.log_hyperparams(
+            self.hparams,
+            {
+                "hp/MSE_diff_val": np.inf,
+                "hp/MSE_diff_test": np.inf,
+                "hp/MAE_alpha_val": np.inf,
+                "hp/MAE_alpha_test": np.inf,
+            },
+        )
+
+    def on_validation_epoch_end(self):
+        print("Validation epoch end")
+        self.logger.experiment.flush()
 
     def validation_step(self, batch, batch_idx):
         preds, targets = self.sample_step(batch, batch_idx=batch_idx)
@@ -339,7 +376,29 @@ class BFlowFBM(pl.LightningModule):
 
     def configure_optimizers(self):
         optimizer = torch.optim.Adam(
-            self.parameters(), amsgrad=True, lr=self.hparams["lr"]
+            [
+                {"params": self.summary_net.parameters(), "lr": 1e-4},
+                {
+                    "params": self.invertible_net.parameters(),
+                    "lr": self.hparams["lr"],
+                },
+            ],
+            amsgrad=True,
         )
-        scheduler = ExponentialLR(optimizer, gamma=self.hparams["gamma"])
+
+        graph_lambda = (
+            lambda step: (self.hparams["gamma"] ** int(step // 150))
+            if step >= 1500
+            else 0.0
+        )
+        inv_lambda = (
+            lambda step: (self.hparams["gamma"] ** int(step // 150))
+            # if step >= 1500
+            # else 0.0
+        )
+
+        scheduler = {
+            "scheduler": LambdaLR(optimizer, [graph_lambda, inv_lambda]),
+            "interval": "step",
+        }
         return [optimizer], [scheduler]
