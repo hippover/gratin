@@ -66,7 +66,7 @@ class fBMGenerator(nn.Module):
         du = torch.randn(
             (BS, T - 1, self.dim), device=alpha.device, requires_grad=False
         )
-        du = du * (diffusion.view(BS, 1, 1).expand(du.size()))
+        du = du * (torch.sqrt(diffusion).view(BS, 1, 1).expand(du.size()))
 
         dx = L @ du
         return torch.cat(

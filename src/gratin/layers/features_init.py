@@ -68,7 +68,7 @@ def cummax_per_graph(X, B):
 
 class TrajsFeatures(nn.Module):
     def get_scales(self, B, P, scale_types):
-        scales = []
+        scales = {}
 
         if scale_types != ["pos_std"]:
             dr = diff_per_graph(P, B)
@@ -78,19 +78,27 @@ class TrajsFeatures(nn.Module):
 
         if "pos_std" in scale_types:
             P_STD = torch.sqrt(torch.sum(scatter_std(P, B) ** 2, dim=1))
-            scales.append(P_STD)
+            scales["pos_std"] = P_STD
 
         if "step_sum" in scale_types:
             step_sum = scatter(dr_norm, index=B[in_points], dim=0, reduce="sum")
-            scales.append(step_sum)
+            scales["step_sum"] = step_sum
 
         if "step_std" in scale_types:
             step_std = scatter_std(dr_norm, B[in_points])
-            scales.append(step_std)
+            scales["step_std"] = step_std
 
         if "step_mean" in scale_types:
             step_mean = scatter(dr_norm, index=B[in_points], dim=0, reduce="mean")
-            scales.append(step_mean)
+            scales["step_mean"] = step_mean
+
+        if "step_var" in scale_types:
+            # var = <dr^2> - <dr>^2
+            step_var = scatter(dr_norm ** 2, index=B[in_points], dim=0, reduce="mean")
+            # - torch.sum(
+            #    scatter(dr, index=B[in_points], dim=0, reduce="mean") ** 2, dim=1
+            # )
+            scales["step_var"] = step_var
         return scales
 
     @classmethod
@@ -117,8 +125,8 @@ class TrajsFeatures(nn.Module):
 
         dr = diff_per_graph(P, B)
 
-        for s in scales:
-
+        for k in scales:
+            s = scales[k]
             scale_factor = torch.index_select(s, dim=0, index=B).view(-1, 1)
             dr_ = dr / scale_factor
             p = P / scale_factor
@@ -151,7 +159,7 @@ class TrajsFeatures(nn.Module):
         # Make a tensor with scales and L (to be used to infer D)
         u = scatter(dr, B, reduce="mean", dim=0)
         u = u / torch.sqrt(1e-5 + torch.sum(u ** 2, dim=1).view(-1, 1))
-        scales = torch.stack(scales + [torch.log(L.float())], dim=1)
+        scales["log_L"] = torch.log(L.float())
 
         orientation = u
 
