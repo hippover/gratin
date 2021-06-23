@@ -142,6 +142,68 @@ def batch_from_sub_batches(sub_batches):
     return new_batch
 
 
+def generate_batch_like(
+    x, T_values, alpha_range, tau_range, generator, degree, simulate_tau=False
+):
+    batches = []
+    BS = torch.max(x.batch) + 1
+    # print("BS = %d" % BS)
+    SBS_min = BS // len(T_values)
+    # print("SBS = %s" % SBS)
+
+    for T in T_values:
+        SBS = int(SBS_min)
+        # print("Generate %d trajs of length %d" % (SBS, T))
+        # print("T = %d, generating %d trajs" % (T, SBS))
+        # ALPHA
+        alpha = (
+            torch.rand(SBS, device="cuda") * (alpha_range[1] - alpha_range[0])
+            + alpha_range[0]
+        )
+        # print("alpha = ", alpha)
+
+        # TAU if needed
+        if simulate_tau:
+            log_tau = torch.rand(SBS, device="cuda") * (
+                np.log10(tau_range[1]) - np.log10(tau_range[0])
+            ) + np.log10(tau_range[0])
+        else:
+            log_tau = torch.ones_like(alpha) * np.log10(T) + 1
+        tau = torch.pow(10.0, log_tau)
+
+        # print("tau = ", tau)
+        # Make sure that tau is not larger than T
+        # tau = torch.where(tau > T, T, tau)
+
+        # DIFFUSION
+        log_diffusion = torch.rand(SBS, device="cuda") * 4 - 2
+        diffusion = torch.pow(10.0, log_diffusion)
+
+        pos = generator(alpha, tau, diffusion, T)
+        # print("Generating T = %d" % T)
+        # print(pos.shape)
+
+        x = batch_from_positions(
+            pos,
+            N=SBS,
+            L=T,
+            D=generator.dim,
+            degree=degree,
+        )
+        x.alpha = alpha.view(-1, 1)
+        x.log_tau = log_tau.view(-1, 1)
+        x.log_diffusion = log_diffusion.view(-1, 1)
+        x.length = torch.ones_like(x.alpha) * T
+        assert x.batch.shape[0] == SBS * T
+        batches.append(x)
+
+    # print("num of sub_batches %d " % len(batches))
+
+    x = batch_from_sub_batches(batches)
+
+    return x
+
+
 class AlphaPredictor(nn.Module):
     """
     The only interest of this class is to add an offset and to restrict the output to a plausible interval

@@ -6,7 +6,6 @@ import numpy as np
 class fBMGenerator(nn.Module):
     def __init__(self, dim, **kwargs):
         self.dim = dim
-        self.seed = 0
         super(fBMGenerator, self).__init__(**kwargs)
 
     def f_(self, DT, alpha):
@@ -48,8 +47,6 @@ class fBMGenerator(nn.Module):
         # T : int
 
         BS = alpha.shape[0]
-        torch.manual_seed(self.seed)
-        self.seed += BS
         C = self.get_dx_cov(alpha, T=T, tau=tau, lam=1.0)
         try:
             L = torch.cholesky(C).float()

@@ -78,11 +78,11 @@ class MainNet_withfeatures(pl.LightningModule):
         if "force_norm" in self.losses:
             self.loss_scale["force_norm"] = (0.5 ** 2) / 12
         if "force" in self.losses:
-            self.loss_scale["force"] = (0.1 ** 2) / 12
+            self.loss_scale["force"] = (0.5 ** 2) / 12
         if "log_tau" in self.losses:
             self.loss_scale["log_tau"] = 1.0 / 12.0
         if "log_diffusion" in self.losses:
-            self.loss_scale["log_diffusion"] = ((4.0 + 4.0) ** 2) / 12.0
+            self.loss_scale["log_diffusion"] = ((-1 - (-3)) ** 2) / 12.0
 
     def get_output_modules(self, tasks, latent_dim, dim, RW_types):
         outputs = {}
@@ -181,7 +181,7 @@ class MainNet_withfeatures(pl.LightningModule):
         )
         x.adj_t = x.adj_t.set_value(E)
         x.x = X
-        x.scales = scales
+        x.scales = torch.cat([scales[k].view(-1, 1) for k in scales], dim=1)
         x.orientation = orientation
         # print(x.seed)
         # unique, counts = torch.unique(x.seed, return_counts=True)

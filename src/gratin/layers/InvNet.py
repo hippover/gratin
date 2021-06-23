@@ -5,7 +5,7 @@ from .diverse import MLP
 
 
 class ACB(nn.Module):
-    def __init__(self, dim_theta, dim_mu, stable_s=False):
+    def __init__(self, dim_theta, dim_mu, stable_s=False, alpha=1.7):
         """
         dim_theta : dimension of the parameters vector
         dim_mu : dimension of the summary vector
@@ -55,7 +55,7 @@ class ACB(nn.Module):
         )
         self.stable_s = stable_s
 
-        self.alpha = 2.0
+        self.alpha = alpha
 
         # U = torch.normal(mean=0.0, std=1.0, size=(4, dim_theta))
         # X = torch.normal(mean=0.0, std=1.0, size=(4, dim_mu))
@@ -125,10 +125,13 @@ class ACB(nn.Module):
 
 
 class InvertibleNet(nn.Module):
-    def __init__(self, dim_theta, dim_x, n_blocks, stable_s=False):
+    def __init__(self, dim_theta, dim_x, n_blocks, stable_s=False, alpha_clip=1.7):
         super(InvertibleNet, self).__init__()
         self.ACBs = nn.Sequential(
-            *[ACB(dim_theta, dim_x, stable_s=stable_s) for k in range(n_blocks)]
+            *[
+                ACB(dim_theta, dim_x, stable_s=stable_s, alpha=alpha_clip)
+                for k in range(n_blocks)
+            ]
         )
 
     def forward(self, theta, x, inverse=False):
