@@ -24,8 +24,9 @@ RUN Docker/install_jax.sh
 
 RUN rm -r Docker
 
-RUN apt-get -y install munge libreadline7
+RUN apt-get -y install munge libreadline7 slurm
 ENV PATH=/pasteur/sonic/hpc/slurm/maestro/slurm/bin/:$PATH
+ENV PATH=/gpfslocalsys/slurm/current/bin/:$PATH
 
 WORKDIR /gratin
 

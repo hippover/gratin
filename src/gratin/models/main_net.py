@@ -14,7 +14,7 @@ from ..layers.encoders import *
 from torch.optim.lr_scheduler import ExponentialLR
 
 
-class MainNet_withfeatures(pl.LightningModule):
+class MainNet(pl.LightningModule):
     def __init__(
         self,
         tasks: list,
@@ -213,7 +213,14 @@ class MainNet_withfeatures(pl.LightningModule):
 
     def validation_step(self, batch, batch_idx):
         loss, out, targets = self.shared_step(batch, stage="val")
-        return {"loss": loss, "preds": out, "targets": targets}
+        trajs_info = targets.copy()
+        del targets["length"]
+        return {
+            "loss": loss,
+            "preds": out,
+            "targets": targets,
+            "trajs_info": trajs_info,
+        }
 
     def shared_step(self, batch, stage="train"):
         # Part of the computation that is common to train, val and test
@@ -226,6 +233,8 @@ class MainNet_withfeatures(pl.LightningModule):
         # Callback ?
         # Write to TB
 
+        targets["length"] = batch.length
+
         for net in out:
 
             targets[net] = self.targets[net](batch)
@@ -233,7 +242,6 @@ class MainNet_withfeatures(pl.LightningModule):
             weights[net] = torch.mean(1.0 * w)
             # print(f"{net} : <w> = {torch.mean(1.*w)}")
             losses[net] = self.losses[net](out[net], targets[net], w)
-
             losses[net] /= self.loss_scale[net]
             self.log(
                 "%s_%s_loss" % (net, stage),

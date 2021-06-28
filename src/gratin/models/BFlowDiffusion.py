@@ -299,7 +299,8 @@ class BFlowMain(pl.LightningModule):
         self.features_maker = TrajsFeatures()
 
         self.trainable_summary_net = TrajsEncoder2(
-            traj_dim=0,  # Orientation non prise en compte
+            traj_dim=0,  # Orientation non prise en compte,
+            n_c=16,
             x_dim=self.hparams["x_dim"],
             e_dim=self.hparams["e_dim"],
             n_scales=len(self.hparams["scale_types"]) + 1,
