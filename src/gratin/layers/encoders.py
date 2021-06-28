@@ -1,6 +1,7 @@
+from torch._C import ThroughputBenchmark
 from .diverse import *
 from .minimal_conv import *
-from torch_geometric.nn import NNConv, GATConv
+from torch_geometric.nn import NNConv, global_mean_pool, GCNConv
 from torch_sparse import SparseTensor
 
 
@@ -17,12 +18,14 @@ class TrajsEncoder2(nn.Module):
         super(TrajsEncoder2, self).__init__()
         e_latent_dim = 16
 
-        self.edges_MLP = MLP([e_dim, 8, 8, e_latent_dim])
+        self.nodes_MLP = MLP([x_dim, 32, 32, x_dim])
 
-        n_heads = 1
+        self.edges_MLP = MLP([e_dim, 32, 32, e_latent_dim])
 
-        self.att_conv = GATConv(
-            in_channels=x_dim, out_channels=n_c // n_heads, heads=n_heads
+        self.att_conv = GCNConv(
+            in_channels=x_dim,
+            out_channels=n_c,
+            improved=True,
         )
 
         self.conv_edges = NNConv(
@@ -34,8 +37,9 @@ class TrajsEncoder2(nn.Module):
 
         self.last_conv = MinimalJumpsConv(n_c, n_c, aggr="max")
 
-        gate_nn = MLP([n_c, n_c, n_c // 2, 1])
-        self.pooling = GlobalAttention(gate_nn=gate_nn)
+        # gate_nn = MLP([n_c, n_c, n_c // 2, 1])
+        # self.pooling = GlobalAttention(gate_nn=gate_nn)
+        self.pooling = global_mean_pool
 
         self.n_scales = n_scales
         self.traj_dim = traj_dim
@@ -49,7 +53,7 @@ class TrajsEncoder2(nn.Module):
         row, col, edge_attr = adj_t.t().coo()
         edge_index = torch.stack([row, col], dim=0)
 
-        x1 = self.att_conv(x=data.x, edge_index=edge_index)
+        x1 = self.att_conv(x=self.nodes_MLP(data.x), edge_index=edge_index)
 
         edges_embedding = self.edges_MLP(edge_attr)
 
