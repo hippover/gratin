@@ -57,6 +57,7 @@ class TrajsEncoder2(nn.Module):
 
         # x2 = self.conv_edges(x=x1, edge_index=adj_t)
         x2 = self.conv_edges(x=x1, edge_index=edge_index, edge_attr=edges_embedding)
+        x2 = torch.tanh(x2)
 
         sparse_adj_t = SparseTensor(col=col, row=row)
         x3 = self.last_conv(x=x2, edge_index=sparse_adj_t)
@@ -66,14 +67,14 @@ class TrajsEncoder2(nn.Module):
 
         x = self.pooling(x=x, batch=data.batch)
 
-        #print(x.size())
+        # print(x.size())
 
         if self.n_scales > 0:
             x = torch.cat((x, torch.log(data.scales + 1e-5)), dim=1)
         if self.traj_dim > 0:
             x = torch.cat((x, data.orientation), dim=1)
 
-        #print(x.size())
+        # print(x.size())
         out = self.mlp(x)
 
         return out
