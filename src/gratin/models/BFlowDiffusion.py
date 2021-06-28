@@ -27,12 +27,14 @@ ALPHA_TAG = "alpha"
 VALID_TAGS = [DIFFUSION_TAG, TAU_TAG, ALPHA_TAG]
 
 
-def get_T_values(T, num_lengths, vary_T=False, eval_mode=False):
+def get_T_values(T, num_lengths, vary_T=False, eval_mode=False, for_encoder=False):
     if not vary_T:
         return [T]
     else:
         if not eval_mode:
-            return np.random.randint(10, int(T * 1.05), size=1)
+            return np.random.randint(
+                10, int(T * 1.05), size=1 if not for_encoder else num_lengths
+            )
         else:
             return np.linspace(10, T, dtype=int, num=num_lengths, endpoint=True)
 
@@ -160,7 +162,7 @@ class BFlowEncoder(pl.LightningModule):
         )
         gamma = 0.99
         gen_lambda = (
-            lambda step: (gamma ** int(step // 150))
+            lambda step: max((gamma ** int(step // 250)), 0.01)
             # if step >= 1500
             # else 0.0
         )
@@ -184,6 +186,7 @@ class BFlowEncoder(pl.LightningModule):
                     self.hparams["n_lengths"],
                     self.hparams["vary_T"],
                     eval_mode=eval_mode,
+                    for_encoder=True,
                 ),
                 self.alpha_range,
                 self.tau_range,
@@ -589,7 +592,7 @@ class BFlowMain(pl.LightningModule):
             amsgrad=True,
         )
         inv_lambda = (
-            lambda step: max((self.hparams["gamma"] ** int(step // 350)), 0.1)
+            lambda step: max((self.hparams["gamma"] ** int(step // 350)), 0.01)
             # if step >= 1500
             # else 0.0
         )
