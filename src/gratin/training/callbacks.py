@@ -39,8 +39,8 @@ class Plotter(Callback):
         for param in tqdm(self.info, leave=False, colour="blue"):
             # if param not in ["alpha", "drift_norm", "model"]:
             #    continue
-            info = torch.cat(self.info[param], dim=0)
-            pred = torch.cat(self.preds[param], dim=0)
+            info = torch.cat(self.info[param], dim=0).cpu()
+            pred = torch.cat(self.preds[param], dim=0).cpu()
 
             if param == "model":
                 info = info[:, 0]

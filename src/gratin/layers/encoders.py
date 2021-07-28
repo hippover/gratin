@@ -50,10 +50,15 @@ class TrajsEncoder2(nn.Module):
 
     def forward(self, data):
         adj_t = data.adj_t
+        # print(data.adj_t[:, :, 0])
         row, col, edge_attr = adj_t.t().coo()
+        sparse_adj_t = SparseTensor(col=col, row=row)
         edge_index = torch.stack([row, col], dim=0)
 
-        x1 = self.att_conv(x=self.nodes_MLP(data.x), edge_index=edge_index)
+        x1 = self.att_conv(
+            x=self.nodes_MLP(data.x),
+            edge_index=sparse_adj_t,
+        )
 
         edges_embedding = self.edges_MLP(edge_attr)
 
@@ -63,7 +68,6 @@ class TrajsEncoder2(nn.Module):
         x2 = self.conv_edges(x=x1, edge_index=edge_index, edge_attr=edges_embedding)
         x2 = torch.tanh(x2)
 
-        sparse_adj_t = SparseTensor(col=col, row=row)
         x3 = self.last_conv(x=x2, edge_index=sparse_adj_t)
 
         # x = torch.cat([x1, x2, x3], dim=1)

@@ -6,7 +6,7 @@ from pytorch_lightning.callbacks import (
     ModelCheckpoint,
 )
 from .callbacks import LatentSpaceSaver, Plotter
-from ..models.network_lightning import MainNet
+from ..models.main_net import MainNet
 from ..data.data_classes import DataModule
 
 
@@ -45,8 +45,9 @@ def setup_trainer(logger, dirpath="/gaia/models", tag="default"):
         log_gpu_memory="min_max",
         reload_dataloaders_every_epoch=True,
         callbacks=[ES, LRM, CKPT, LSS, PLT],
-        accelerator="ddp" if torch.cuda.is_available() else "ddp_cpu",
+        #accelerator="ddp" if torch.cuda.is_available() else "ddp_cpu",
         log_every_n_steps=150,
+        accumulate_grad_batches=8,
         flush_logs_every_n_steps=300,
         terminate_on_nan=True,
         track_grad_norm=2,
