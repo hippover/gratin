@@ -20,6 +20,7 @@ from ..layers.InvNet import InvertibleNet
 from ..layers.fBMGenerator import fBMGenerator
 from torch.optim.lr_scheduler import ExponentialLR, LambdaLR
 from itertools import chain
+import os
 
 DIFFUSION_TAG = "log_diffusion"
 TAU_TAG = "log_tau"
@@ -33,8 +34,8 @@ def get_T_values(T, num_lengths, vary_T=False, eval_mode=False, for_encoder=Fals
     else:
         if not eval_mode:
             return np.random.randint(
-                10, int(T * 1.05), size=1 if not for_encoder else num_lengths
-            )
+                10 - 2, int(T * 1.1), size=1 if not for_encoder else num_lengths
+            )  # On prend un intervalle un peu plus grand pour éviter des effets de bord
         else:
             return np.linspace(10, T, dtype=int, num=num_lengths, endpoint=True)
 
@@ -301,19 +302,20 @@ class BFlowMain(pl.LightningModule):
         self.generator = fBMGenerator(dim=self.hparams["dim"])
         self.features_maker = TrajsFeatures()
 
-        self.trainable_summary_net = TrajsEncoder2(
-            traj_dim=0,  # Orientation non prise en compte,
-            n_c=16,
-            x_dim=self.hparams["x_dim"],
-            e_dim=self.hparams["e_dim"],
-            n_scales=len(self.hparams["scale_types"]) + 1,
-            latent_dim=self.hparams["latent_dim"],
-        )
+        # Removed, slows training too much
+        # self.trainable_summary_net = TrajsEncoder2(
+        #    traj_dim=0,  # Orientation non prise en compte,
+        #    n_c=16,
+        #    x_dim=self.hparams["x_dim"],
+        #    e_dim=self.hparams["e_dim"],
+        #    n_scales=len(self.hparams["scale_types"]) + 1,
+        #    latent_dim=self.hparams["latent_dim"],
+        # )
 
         self.invertible_net = InvertibleNet(
             dim_theta=self.dim_theta,
             dim_x=self.hparams["latent_dim"]
-            * (len(self.hparams["to_infer"]) + 1),  # latent_dim dimensions per encoder
+            * len(self.hparams["to_infer"]),  # latent_dim dimensions per encoder
             n_blocks=n_ACBs,
             alpha_clip=alpha_clip,
         )
@@ -327,10 +329,14 @@ class BFlowMain(pl.LightningModule):
         self.summary_nets = {}
 
         encoders = {}
-        for param in encoders_paths:
-            encoders[param] = BFlowEncoder.load_from_checkpoint(
+        for param in to_infer:
+            assert param in encoders_paths, "no path for %s" % param
+            assert os.path.exists(
                 encoders_paths[param]
-            ).to("cuda")
+            ), "file does not exist (%s) : %s" % (param, encoders_paths[param])
+            encoders[param] = BFlowEncoder.load_from_checkpoint(encoders_paths[param])
+
+            encoders[param] = encoders[param].to("cuda")
             encoders[param].freeze()
             encoders[param].eval()
 
@@ -357,16 +363,15 @@ class BFlowMain(pl.LightningModule):
                 if type(value) is list:
                     value = ",".join(value)
                 encoder_values[hparam].append(value)
-            encoders[param].eval()
-            encoders[param].freeze()
             self.summary_nets[param] = encoders[param].summary_net
 
+        self.summary_nets = nn.ModuleDict(self.summary_nets)
         hparams_to_save = {}
 
         for hparam in hparams_to_check:
             assert (
                 len(set(encoder_values[hparam])) == 1
-            ), "more than 1 %s value : [%s]" % (
+            ), "conflict between task-specific summary nets -> more than 1 %s value : [%s]" % (
                 hparam,
                 ", ".join(encoder_values[hparam]),
             )
@@ -491,7 +496,7 @@ class BFlowMain(pl.LightningModule):
                 [self.summary_nets[param](x) for param in self.hparams["to_infer"]],
                 dim=1,
             )
-        h = torch.cat([h, self.trainable_summary_net(x)], dim=1)
+        # h = torch.cat([h, self.trainable_summary_net(x)], dim=1)
 
         true_theta = self.make_theta(x)
 
