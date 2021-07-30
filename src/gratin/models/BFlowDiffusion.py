@@ -174,31 +174,28 @@ class BFlowEncoder(pl.LightningModule):
         }
         return [optimizer], [scheduler]
 
-    def forward(self, x, return_input=True, eval_mode=False):
-        # Si x ne contient pas de trajectoires, on en génère
-        if torch.isnan(x.pos).sum() > 0:
-            # print(self.seed)
-            torch.manual_seed(self.seed)
-            self.seed += x.alpha.shape[0]
-            x = generate_batch_like(
-                x,
-                get_T_values(
-                    self.hparams["T"],
-                    self.hparams["n_lengths"],
-                    self.hparams["vary_T"],
-                    eval_mode=eval_mode,
-                    for_encoder=True,
-                ),
-                self.alpha_range,
-                self.tau_range,
-                self.generator,
-                self.hparams["degree"],
-                simulate_tau=self.hparams["vary_tau"],
-            )
-            assert torch.isnan(x.pos).sum() == 0
+    def get_new_batch_like(self, x, eval_mode):
+        torch.manual_seed(self.seed)
+        self.seed += x.alpha.shape[0]
+        x = generate_batch_like(
+            x,
+            get_T_values(
+                self.hparams["T"],
+                self.hparams["n_lengths"],
+                self.hparams["vary_T"],
+                eval_mode=eval_mode,
+                for_encoder=True,
+            ),
+            self.alpha_range,
+            self.tau_range,
+            self.generator,
+            self.hparams["degree"],
+            simulate_tau=self.hparams["vary_tau"],
+        )
+        assert torch.isnan(x.pos).sum() == 0
+        return x
 
-        # NORMAL FORWARD PASS
-
+    def compute_features(self, x):
         X, E, scales, orientation = self.features_maker(
             x, scale_types=self.hparams["scale_types"]
         )
@@ -210,9 +207,17 @@ class BFlowEncoder(pl.LightningModule):
         # )
 
         assert x.x.shape[1] == self.hparams["x_dim"]
+        return x
 
+    def forward(self, x, return_input=True, eval_mode=False):
+        # Si x ne contient pas de trajectoires, on en génère
+        if torch.isnan(x.pos).sum() > 0:
+            # print(self.seed)
+            x = self.get_new_batch_like(x, eval_mode=eval_mode)
+
+        # NORMAL FORWARD PASS
+        x = self.compute_features(x)
         h = self.summary_net(x)
-
         output = self.simple_mlp(h)
 
         if not return_input:
@@ -320,7 +325,7 @@ class BFlowMain(pl.LightningModule):
             alpha_clip=alpha_clip,
         )
 
-        self.norm_dist = torch.distributions.normal.Normal(0.0, 1, validate_args=None)
+        self.norm_dist = torch.distributions.normal.Normal(0.0, 1.0, validate_args=None)
         self.unif_dist = torch.distributions.uniform.Uniform(-0.5, 0.5)
 
         print(self.hparams)
@@ -400,9 +405,11 @@ class BFlowMain(pl.LightningModule):
         m -= 0.05 * range_size
         M += 0.05 * range_size
         if inverse == False:
-            return self.unif_dist.icdf((param - m) / (M - m))
+            # return self.unif_dist.icdf((param - m) / (M - m))
+            return self.norm_dist.icdf((param - m) / (M - m))
         elif inverse == True:
-            return self.unif_dist.cdf(param) * (M - m) + m
+            # return self.unif_dist.cdf(param) * (M - m) + m
+            return self.norm_dist.cdf(param) * (M - m) + m
 
     def scale_alpha(self, alpha, inverse=False):
         return self.scale(alpha, self.hparams["alpha_range"], inverse)
@@ -420,6 +427,23 @@ class BFlowMain(pl.LightningModule):
     def scale_logdiff(self, logdiff, inverse=False):
         return self.scale(logdiff, (-2, 2), inverse)
 
+    def couple(self, z, inverse=False):
+        # Made sure that it is well inverted
+
+        r = torch.sqrt(torch.sum(z ** 2, dim=1))
+        angle = r * 1.5
+        if inverse:
+            angle *= -1
+        rot_matrix_1 = torch.stack([torch.cos(angle), torch.sin(angle)], dim=1)
+        rot_matrix_2 = torch.stack([-torch.sin(angle), torch.cos(angle)], dim=1)
+        rot_matrix = torch.stack([rot_matrix_1, rot_matrix_2], dim=0)
+
+        res = rot_matrix @ z.T
+
+        z_rotated = torch.stack([torch.diag(res[0]), torch.diag(res[1])], dim=1)
+
+        return z_rotated
+
     def make_theta(self, x):
 
         theta_dims = []
@@ -430,10 +454,15 @@ class BFlowMain(pl.LightningModule):
         if TAU_TAG in self.hparams["to_infer"]:
             theta_dims.append(self.scale_logtau(x.log_tau).float().view(-1, 1))
         theta = torch.cat(theta_dims, dim=1)
+
+        # Couple variables
+        theta = self.couple(theta)
         return theta
 
     def get_params(self, theta):
 
+        # decouple variables
+        theta = self.couple(theta, inverse=True)
         params = {}
         if ALPHA_TAG in self.hparams["to_infer"]:
             params[ALPHA_TAG] = self.scale_alpha(
@@ -449,6 +478,47 @@ class BFlowMain(pl.LightningModule):
             )
         return params
 
+    def get_new_batch_like(self, x, eval_mode):
+        x = generate_batch_like(
+            x,
+            get_T_values(
+                self.hparams["T"],
+                self.hparams["n_lengths"],
+                vary_T=False if TAU_TAG in self.hparams["to_infer"] else True,
+                eval_mode=eval_mode,
+            ),
+            self.hparams["alpha_range"],
+            self.hparams["tau_range"],
+            self.generator,
+            self.hparams["degree"],
+            simulate_tau=TAU_TAG in self.hparams["to_infer"],
+        )
+        assert torch.isnan(x.pos).sum() == 0
+        return x
+
+    def compute_features(self, x):
+        X, E, scales, orientation = self.features_maker(
+            x, scale_types=self.hparams["scale_types"]
+        )
+        x.adj_t = x.adj_t.set_value(E)
+        x.x = X
+        x.scales = torch.cat([scales[k].view(-1, 1) for k in scales], dim=1)
+        # x.log_diffusion_correction = torch.clamp(
+        #    x.log_diffusion - torch.log10(scales["step_var"]).view(-1, 1), -1, 1
+        # )
+
+        assert x.x.shape[1] == self.hparams["x_dim"]
+        return x
+
+    def get_latent_vector(self, x):
+        with torch.no_grad():
+            h = torch.cat(
+                [self.summary_nets[param](x) for param in self.hparams["to_infer"]],
+                dim=1,
+            )
+        # h = torch.cat([h, self.trainable_summary_net(x)], dim=1)
+        return h
+
     def forward(
         self,
         x,
@@ -461,44 +531,11 @@ class BFlowMain(pl.LightningModule):
 
         # Si x ne contient pas de trajectoires, on en génère
         if torch.isnan(x.pos).sum() > 0:
-            x = generate_batch_like(
-                x,
-                get_T_values(
-                    self.hparams["T"],
-                    self.hparams["n_lengths"],
-                    vary_T=False if TAU_TAG in self.hparams["to_infer"] else True,
-                    eval_mode=eval_mode,
-                ),
-                self.hparams["alpha_range"],
-                self.hparams["tau_range"],
-                self.generator,
-                self.hparams["degree"],
-                simulate_tau=TAU_TAG in self.hparams["to_infer"],
-            )
-            assert torch.isnan(x.pos).sum() == 0
+            x = self.get_new_batch_like(x, eval_mode=eval_mode)
 
-        # NORMAL FORWARD PASS
-
-        X, E, scales, orientation = self.features_maker(
-            x, scale_types=self.hparams["scale_types"]
-        )
-        x.adj_t = x.adj_t.set_value(E)
-        x.x = X
-        x.scales = torch.cat([scales[k].view(-1, 1) for k in scales], dim=1)
-        # .log_diffusion_correction = torch.clamp(
-        #    x.log_diffusion - torch.log10(scales["step_var"]).view(-1, 1), -1, 1
-        # )
-
-        assert x.x.shape[1] == self.hparams["x_dim"]
-
-        with torch.no_grad():
-            h = torch.cat(
-                [self.summary_nets[param](x) for param in self.hparams["to_infer"]],
-                dim=1,
-            )
-        # h = torch.cat([h, self.trainable_summary_net(x)], dim=1)
-
+        x = self.compute_features(x)
         true_theta = self.make_theta(x)
+        h = self.get_latent_vector(x)
 
         if not sample:
             z, log_J = self.invertible_net(true_theta, h, inverse=False)
@@ -530,8 +567,7 @@ class BFlowMain(pl.LightningModule):
 
         return {"loss": l}
 
-    def sample_step(self, batch, batch_idx):
-        n_repeats = 20
+    def sample_step(self, batch, batch_idx, n_repeats=20):
         theta, true_theta, trajs = self(
             batch,
             batch_idx=batch_idx,

@@ -24,7 +24,7 @@ class ACB(nn.Module):
         self.s_1 = MLP(
             [
                 self.n_2 + dim_mu,
-                self.n_2 + dim_mu + 32,
+                (self.n_2 + dim_mu) * 4,
                 self.n_2 + dim_mu + 32,
                 self.n_1,
             ]
@@ -32,7 +32,7 @@ class ACB(nn.Module):
         self.t_1 = MLP(
             [
                 self.n_2 + dim_mu,
-                self.n_2 + dim_mu + 32,
+                (self.n_2 + dim_mu) * 4,
                 self.n_2 + dim_mu + 32,
                 self.n_1,
             ]
@@ -40,7 +40,7 @@ class ACB(nn.Module):
         self.s_2 = MLP(
             [
                 self.n_1 + dim_mu,
-                self.n_1 + dim_mu + 32,
+                (self.n_1 + dim_mu) * 4,
                 self.n_1 + dim_mu + 32,
                 self.n_2,
             ]
@@ -48,7 +48,7 @@ class ACB(nn.Module):
         self.t_2 = MLP(
             [
                 self.n_1 + dim_mu,
-                self.n_1 + dim_mu + 32,
+                (self.n_1 + dim_mu) * 4,
                 self.n_1 + dim_mu + 32,
                 self.n_2,
             ]
@@ -56,19 +56,6 @@ class ACB(nn.Module):
         self.stable_s = stable_s
 
         self.alpha = alpha
-
-        # U = torch.normal(mean=0.0, std=1.0, size=(4, dim_theta))
-        # X = torch.normal(mean=0.0, std=1.0, size=(4, dim_mu))
-        #
-        # assert torch.all(
-        #    torch.index_select(
-        #        torch.index_select(U, 1, self.permutation), 1, self.inv_permutation
-        #    ).eq(U)
-        # )
-
-        # im_U = self(U, X, inverse=False, log_det_J=False)
-        # inv_im_U = self(im_U, X, inverse=True)
-        # assert torch.max(torch.abs(U - inv_im_U)) < 1e-5
 
     def clamp(self, s):
         s = (2.0 * self.alpha / np.pi) * torch.atan(s / self.alpha)
@@ -134,17 +121,27 @@ class InvertibleNet(nn.Module):
             ]
         )
 
-    def forward(self, theta, x, inverse=False):
+    def forward(self, theta, x, inverse=False, return_intermediates=False):
         if not inverse:
             log_J_total = 0.0
+            z_intermediates = [theta]
             for acb in self.ACBs:
                 theta, log_J = acb(theta, x, inverse=False, log_det_J=True)
+                z_intermediates.append(theta.clone())
                 log_J_total = log_J_total + log_J
             z = theta
-            return z, log_J_total
+            if not return_intermediates:
+                return z, log_J_total
+            else:
+                return z, log_J_total, z_intermediates
         else:
+            theta_intermediates = [theta]
             z = theta
             for acb in self.ACBs[::-1]:
                 z = acb(z, x, inverse=True, log_det_J=False)
+                theta_intermediates.append(z.clone())
             theta = z
-            return theta
+            if not return_intermediates:
+                return theta
+            else:
+                return theta, theta_intermediates
