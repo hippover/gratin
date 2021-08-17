@@ -143,7 +143,14 @@ def batch_from_sub_batches(sub_batches):
 
 
 def generate_batch_like(
-    x, T_values, alpha_range, tau_range, generator, degree, simulate_tau=False
+    x,
+    T_values,
+    alpha_range,
+    tau_range,
+    generator,
+    degree,
+    simulate_tau=False,
+    simulate_diffusion=True,
 ):
     batches = []
     BS = torch.max(x.batch) + 1
@@ -157,26 +164,30 @@ def generate_batch_like(
         # print("T = %d, generating %d trajs" % (T, SBS))
         # ALPHA
         alpha = (
-            torch.rand(SBS, device="cuda") * (alpha_range[1] - alpha_range[0])
+            torch.rand(SBS, device=x.pos.device) * (alpha_range[1] - alpha_range[0])
             + alpha_range[0]
         )
         # print("alpha = ", alpha)
 
         # TAU if needed
         if simulate_tau:
-            log_tau = torch.rand(SBS, device="cuda") * (
+            log_tau = torch.rand(SBS, device=x.pos.device) * (
                 np.log10(tau_range[1]) - np.log10(tau_range[0])
             ) + np.log10(tau_range[0])
         else:
             log_tau = torch.ones_like(alpha) * np.log10(T) + 1
-        tau = torch.pow(10.0, log_tau)
+        tau = torch.floor(torch.pow(10.0, log_tau))
+        log_tau = torch.log10(tau)
 
         # print("tau = ", tau)
         # Make sure that tau is not larger than T
         # tau = torch.where(tau > T, T, tau)
 
         # DIFFUSION
-        log_diffusion = torch.rand(SBS, device="cuda") * 4 - 2
+        if simulate_diffusion == True:
+            log_diffusion = torch.rand(SBS, device=x.pos.device) * 4 - 2
+        else:
+            log_diffusion = torch.ones_like(alpha) * 0.0
         diffusion = torch.pow(10.0, log_diffusion)
 
         pos = generator(alpha, tau, diffusion, T)
