@@ -49,6 +49,7 @@ class fBMGenerator(nn.Module):
         BS = alpha.shape[0]
         C = self.get_dx_cov(alpha, T=T, tau=tau, lam=1.0)
         try:
+            # Returns a lower triangular matrix
             L = torch.cholesky(C).float()
         except Exception as e:
             print("alpha =")

@@ -191,6 +191,7 @@ class BFlowEncoder(pl.LightningModule):
             self.generator,
             self.hparams["degree"],
             simulate_tau=self.hparams["vary_tau"],
+            simulate_diffusion=True,  # Here, we should put False if we're in alpha-tau mode
         )
         assert torch.isnan(x.pos).sum() == 0
         return x
@@ -634,7 +635,7 @@ class BFlowMain(pl.LightningModule):
             amsgrad=True,
         )
         inv_lambda = (
-            lambda step: max((self.hparams["gamma"] ** int(step // 350)), 0.01)
+            lambda step: max((self.hparams["gamma"] ** int(step // 350)), 0.05)
             # if step >= 1500
             # else 0.0
         )
