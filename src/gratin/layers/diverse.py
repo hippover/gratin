@@ -158,6 +158,9 @@ def generate_batch_like(
     SBS_min = BS // len(T_values)
     # print("SBS = %s" % SBS)
 
+    if not x.pos.is_cuda:
+        x.pos = x.pos.cuda()
+
     for T in T_values:
         SBS = int(SBS_min)
         # print("Generate %d trajs of length %d" % (SBS, T))

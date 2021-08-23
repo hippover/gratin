@@ -307,6 +307,7 @@ class BFlowMain(pl.LightningModule):
 
         self.generator = fBMGenerator(dim=self.hparams["dim"])
         self.features_maker = TrajsFeatures()
+        self.global_step_last_T_generated = -1
 
         # Removed, slows training too much
         # self.trainable_summary_net = TrajsEncoder2(
@@ -480,14 +481,30 @@ class BFlowMain(pl.LightningModule):
         return params
 
     def get_new_batch_like(self, x, eval_mode):
-        x = generate_batch_like(
-            x,
-            get_T_values(
+
+        # This is to get the same T_values across batches when we accumulate gradients
+        if eval_mode:
+            T_values = get_T_values(
                 self.hparams["T"],
                 self.hparams["n_lengths"],
                 vary_T=False if TAU_TAG in self.hparams["to_infer"] else True,
                 eval_mode=eval_mode,
-            ),
+            )
+        else:
+            if self.global_step > self.global_step_last_T_generated:
+                T_values = get_T_values(
+                    self.hparams["T"],
+                    self.hparams["n_lengths"],
+                    vary_T=False if TAU_TAG in self.hparams["to_infer"] else True,
+                    eval_mode=eval_mode,
+                )
+                self.global_step_last_T_generated = self.global_step
+                self.last_T_values = T_values
+            else:
+                T_values = self.last_T_values
+        x = generate_batch_like(
+            x,
+            T_values,
             self.hparams["alpha_range"],
             self.hparams["tau_range"],
             self.generator,
@@ -635,7 +652,7 @@ class BFlowMain(pl.LightningModule):
             amsgrad=True,
         )
         inv_lambda = (
-            lambda step: max((self.hparams["gamma"] ** int(step // 350)), 0.05)
+            lambda step: max((self.hparams["gamma"] ** int(step // 350)), 0.2)
             # if step >= 1500
             # else 0.0
         )
