@@ -28,11 +28,13 @@ def edges_geom_causal(N, D):
 
 
 def traj_scale(positions: np.array, scale_name: str):
-    dr = get_steps(positions)
+    dr, steps = get_steps(positions, return_steps=True)
     if scale_name == "step_std":
         scale = np.std(dr)
     elif scale_name == "step_mean":
         scale = np.mean(dr)
+    elif scale_name == "msd":
+        scale = np.sqrt(np.mean(dr ** 2) - np.sum(np.mean(steps) ** 2))
     elif scale_name == "step_sum":
         scale = np.sum(dr)
     elif scale_name == "pos_std":
@@ -45,6 +47,9 @@ def traj_scale(positions: np.array, scale_name: str):
     return scale
 
 
-def get_steps(positions):
+def get_steps(positions, return_steps=False):
     dr = positions[1:] - positions[:-1]
-    return np.sqrt(np.sum(dr ** 2, axis=1))
+    if not return_steps:
+        return np.sqrt(np.sum(dr ** 2, axis=1))
+    else:
+        return np.sqrt(np.sum(dr ** 2, axis=1)), dr

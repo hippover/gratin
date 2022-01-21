@@ -3,7 +3,7 @@ import numpy as np
 from tqdm.notebook import tqdm
 from collections import defaultdict
 from sklearn.metrics import f1_score
-from ..data.data_classes import EMPTY_FIELD_VALUE
+from ..data.datamodule import EMPTY_FIELD_VALUE
 import torch.nn as nn
 import torch
 

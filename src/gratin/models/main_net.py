@@ -1,15 +1,21 @@
 from collections import defaultdict
 import pytorch_lightning as pl
-from pytorch_lightning.metrics.regression import MeanAbsoluteError as MAE
-from pytorch_lightning.metrics import F1
-from pytorch_lightning.metrics import ExplainedVariance as EV
+
+try:
+
+    from pytorch_lightning.metrics.regression import MeanAbsoluteError as MAE
+    from pytorch_lightning.metrics import F1
+    from pytorch_lightning.metrics import ExplainedVariance as EV
+except:
+    from torchmetrics import MeanAbsoluteError as MAE
+    from torchmetrics.classification.f_beta import F1Score as F1
+    from torchmetrics import ExplainedVariance as EV
 import torch.nn as nn
 import torch
 from functools import partial
 from ..layers.diverse import MLP, AlphaPredictor
 from ..layers.features_init import *
 from ..training.network_tools import L2_loss, Category_loss, is_concerned
-from ..data.data_classes import DataModule
 from ..layers.encoders import *
 from torch.optim.lr_scheduler import ExponentialLR
 
@@ -78,7 +84,7 @@ class MainNet(pl.LightningModule):
         if "force_norm" in self.losses:
             self.loss_scale["force_norm"] = (0.5 ** 2) / 12
         if "force" in self.losses:
-            self.loss_scale["force"] = 2*(80 ** 2) / 12
+            self.loss_scale["force"] = 2 * (80 ** 2) / 12
         if "log_tau" in self.losses:
             self.loss_scale["log_tau"] = 1.0 / 12.0
         if "log_diffusion" in self.losses:
@@ -290,6 +296,10 @@ class MainNet(pl.LightningModule):
             prog_bar=True,
             logger=True,
         )
+
+        for key, value in out.items():
+            out[key] = value.detach()
+
         return loss, out, targets
 
     def configure_optimizers(self):

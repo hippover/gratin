@@ -1,9 +1,9 @@
+from torchmetrics.functional import confusion_matrix
 from pytorch_lightning.callbacks import Callback
-from pytorch_lightning.metrics.functional import confusion_matrix
 from .network_tools import is_concerned
 from collections import defaultdict
 from tqdm import tqdm
-from ..data.data_classes import EMPTY_FIELD_VALUE
+from ..data.datamodule import EMPTY_FIELD_VALUE
 import os, sys
 import torch
 import numpy as np

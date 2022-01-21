@@ -41,8 +41,6 @@ from functools import partial
 
 # from .traj_tools import HiddenPrints
 import warnings
-import jax.numpy as jnp
-import jax
 
 
 __all__ = ["diffusion_models"]
@@ -67,7 +65,7 @@ class diffusion_models(object):
         """Class cointaning one dimensional diffusion models"""
 
         def fbm(self, T, alpha):
-            """ Creates a 1D fractional brownian motion trajectory"""
+            """Creates a 1D fractional brownian motion trajectory"""
             H = alpha * 0.5
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
@@ -95,7 +93,7 @@ class diffusion_models(object):
                 return np.stack((times, positions))
 
         def lw(self, T, alpha):
-            """ Creates a 1D Levy walk trajectory """
+            """Creates a 1D Levy walk trajectory"""
             if alpha < 1:
                 raise ValueError("Levy walks only allow for anomalous exponents > 1.")
             # Define exponents for the distribution of flight times
@@ -244,17 +242,21 @@ class diffusion_models(object):
                 return np.stack((times, posX, posY))
 
         def fbm(self, T, alpha):
-            """ Creates a 2D fractional brownian motion trajectory"""
+            """Creates a 2D fractional brownian motion trajectory"""
             # Defin Hurst exponent
             H = alpha * 0.5
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
                 return np.stack(
-                    (fbm.fbm(int(T - 1), H), fbm.fbm(int(T - 1), H)), axis=1
+                    (
+                        fbm.fbm(int(T - 1), H, length=int(T)),
+                        fbm.fbm(int(T - 1), H, length=int(T)),
+                    ),
+                    axis=1,
                 )
 
         def lw(self, T, alpha):
-            """ Creates a 2D Levy walk trajectory """
+            """Creates a 2D Levy walk trajectory"""
             if alpha < 1:
                 raise ValueError("Levy walks only allow for anomalous exponents > 1.")
             # Define exponents for the distribution of times
@@ -430,7 +432,7 @@ class diffusion_models(object):
                 return np.stack((times, posX, posY, posZ))
 
         def fbm(self, T, alpha):
-            """ Creates a 3D fractional brownian motion trajectory"""
+            """Creates a 3D fractional brownian motion trajectory"""
             # Define Hurst exponent
             H = alpha * 0.5
             with warnings.catch_warnings():
@@ -445,7 +447,7 @@ class diffusion_models(object):
                 )
 
         def lw(self, T, alpha, regular_time=True):
-            """ Creates a 3D Levy walk trajectory """
+            """Creates a 3D Levy walk trajectory"""
             if alpha < 1:
                 raise ValueError("Levy walks only allow for anomalous exponents > 1.")
             # Define exponents for the distribution of times
@@ -615,69 +617,11 @@ def generate_OU(D, T, log_theta, sigma):
     return X
 
 
-@jax.jit
-def get_dx_cov(alpha, t):
-    i = jnp.reshape(t, (-1, 1))
-    j = i.T
-    k = j - i
-    C = 0.5 * (
-        jnp.power(jnp.abs(k + 1), alpha)
-        + jnp.power(jnp.abs(k - 1), alpha)
-        - 2 * jnp.power(jnp.abs(k), alpha)
-    )
-    # C = jnp.where(k >= 100, 0., C)
-    return C
-
-
-@jax.jit
-def get_fbm_from_cov(dx_cov, key):
-    dx = jax.random.multivariate_normal(
-        key=key, mean=jnp.zeros(dx_cov.shape[0]), cov=dx_cov
-    )
-    x = jnp.cumsum(dx, axis=0)
-    return x
-
-
-get_multidim_fbm = jax.vmap(get_fbm_from_cov, in_axes=(None, 0), out_axes=1)
-
-
-@jax.jit
-def log_likelihood(x, alpha):
-    dx = jnp.diff(x, axis=0)
-    C = get_dx_cov(alpha, jnp.arange(dx.shape[0]))
-    mean = jnp.zeros(dx.shape[0])
-    log_p = jax.scipy.stats.multivariate_normal.logpdf(dx, mean, C)
-    return log_p
-
-
-vLL = jax.jit(jax.vmap(jax.vmap(log_likelihood, in_axes=(1, None)), in_axes=(None, 0)))
-
-
-@jax.jit
-def ML_alpha(x, alpha_range=jnp.linspace(0.01, 1.99, 100)):
-    LL = jnp.sum(vLL(x, alpha_range), axis=1)
-    LL = jnp.where(jnp.isnan(LL), jnp.nanmin(LL), LL)
-    i = jnp.argmax(LL)
-    return alpha_range[i]
-
-
-def get_fbm(D, alpha, T, key):
-    dx_cov = get_dx_cov(alpha, jnp.arange(T))
-    keys = jax.random.split(key, num=D)
-    try:
-        return get_multidim_fbm(dx_cov, keys)
-    except Exception as e:
-        print(e)
-        raise
-
-
 generators = {
     1: {
         "ATTM": diffusion_models().oneD().attm,
         "CTRW": diffusion_models().oneD().ctrw,
         "fBM": diffusion_models().oneD().fbm,
-        "fBM_fullrange": diffusion_models().oneD().fbm,
-        "fBM_jax": partial(get_fbm, D=1),
         "LW": diffusion_models().oneD().lw,
         "sBM": diffusion_models().oneD().sbm,
         "BM": diffusion_models().oneD().BM,
