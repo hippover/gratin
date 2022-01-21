@@ -16,7 +16,8 @@ def is_first_point(B):
     # print(B)
     f = torch.abs(B - torch.roll(B, 1, dims=(0,))) > 0
     # print("first points", f)
-    assert f[0] == True
+    if torch.max(B) > torch.min(B):
+        assert f[0] == True
     return f
 
 
@@ -24,7 +25,8 @@ def is_last_point(B):
     # print(B)
     f = torch.abs(B - torch.roll(B, -1, dims=(0,))) > 0
     # print("last points", f)
-    assert f[-1] == True
+    if torch.max(B) > torch.min(B):
+        assert f[-1] == True
     return f
 
 

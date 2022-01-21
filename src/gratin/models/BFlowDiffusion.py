@@ -1,4 +1,5 @@
 from collections import defaultdict
+from numpy.core.defchararray import array
 import pytorch_lightning as pl
 from pytorch_lightning.metrics.regression import MeanAbsoluteError as MAE
 from pytorch_lightning.metrics.regression import MeanSquaredError as MSE
@@ -28,14 +29,69 @@ ALPHA_TAG = "alpha"
 VALID_TAGS = [DIFFUSION_TAG, TAU_TAG, ALPHA_TAG]
 
 
-def get_T_values(T, num_lengths, vary_T=False, eval_mode=False, for_encoder=False):
+def get_T_values(
+    T,
+    num_lengths,
+    vary_T=False,
+    eval_mode=False,
+    for_encoder=False,
+    mix_lengths=False,
+    log_sampling=True,
+):
     if not vary_T:
         return [T]
     else:
         if not eval_mode:
-            return np.random.randint(
-                10 - 2, int(T * 1.1), size=1 if not for_encoder else num_lengths
-            )  # On prend un intervalle un peu plus grand pour éviter des effets de bord
+            if not mix_lengths:
+                # une seule longueur par batch
+                if log_sampling:
+                    return [
+                        int(
+                            np.power(
+                                10,
+                                np.random.uniform(
+                                    low=np.log10(10 / 1.1), high=np.log10(1.1 * T)
+                                ),
+                            )
+                        )
+                    ]
+                else:
+                    return [int(np.random.uniform(low=10 / 1.1, high=1.1 * T))]
+            else:
+                # Les batches mélangent des longueurs, à la fin on vérifie si c'est OK
+                OK = False
+                while not OK:
+                    if log_sampling:
+                        T_values = [
+                            np.power(
+                                10,
+                                np.random.uniform(
+                                    low=np.log10(10.0 / 1.1), high=np.log10(1.1 * T)
+                                ),
+                            )
+                            for _ in range(num_lengths)
+                        ]
+                        OK = np.abs(np.mean(np.log10(np.array(T_values))) - 2) < 0.1
+                        OK = OK and (
+                            np.quantile(np.array(T_values), 0.8)
+                            > np.power(10, 1 + 0.7 * 2)
+                        )
+                        OK = OK and (
+                            np.quantile(np.array(T_values), 0.2)
+                            < np.power(10, 1 + 0.3 * 2)
+                        )
+                    else:
+                        T_values = [
+                            t
+                            for t in np.random.uniform(
+                                low=10.0 / 1.1, high=1.1 * T, size=num_lengths
+                            )
+                        ]
+                        OK = np.abs(np.mean(np.array(T_values)) - 495) < T / 10
+                        OK = OK and (np.quantile(np.array(T_values), 0.8) > 0.7 * T)
+                        OK = OK and (np.quantile(np.array(T_values), 0.2) < 0.3 * T)
+                T_values = [int(v) for v in T_values]
+                return T_values
         else:
             return np.linspace(10, T, dtype=int, num=num_lengths, endpoint=True)
 
@@ -210,7 +266,7 @@ class BFlowEncoder(pl.LightningModule):
         assert x.x.shape[1] == self.hparams["x_dim"]
         return x
 
-    def forward(self, x, return_input=True, eval_mode=False):
+    def forward(self, x, return_input=True, eval_mode=False, return_latent=False):
         # Si x ne contient pas de trajectoires, on en génère
         if torch.isnan(x.pos).sum() > 0:
             # print(self.seed)
@@ -220,6 +276,9 @@ class BFlowEncoder(pl.LightningModule):
         x = self.compute_features(x)
         h = self.summary_net(x)
         output = self.simple_mlp(h)
+
+        if return_latent:
+            return h, x
 
         if not return_input:
             return output
@@ -289,9 +348,14 @@ class BFlowMain(pl.LightningModule):
         to_infer: list,
         gamma: float = 0.98,
         lr: float = 1e-3,
-        n_lengths: int = 8,
+        n_lengths: int = 32,
         n_ACBs: int = 3,
         alpha_clip: float = 1.7,
+        couple_factor: float = 1.5,
+        t_abs: float = 4,
+        s_abs: float = 4,
+        log_sampling: bool = True,
+        mix_lengths: bool = True,
         **kwargs
     ):
 
@@ -300,13 +364,14 @@ class BFlowMain(pl.LightningModule):
         self.save_hyperparameters(self.load_summary_nets(encoders_paths, to_infer))
 
         self.metrics = {
-            ALPHA_TAG: MAE().cuda(),
-            TAU_TAG: MSE().cuda(),
-            DIFFUSION_TAG: MSE().cuda(),
+            ALPHA_TAG: MAE(),
+            TAU_TAG: MSE(),
+            DIFFUSION_TAG: MSE(),
         }
 
         self.generator = fBMGenerator(dim=self.hparams["dim"])
         self.features_maker = TrajsFeatures()
+        self.global_step_last_T_generated = -1
 
         # Removed, slows training too much
         # self.trainable_summary_net = TrajsEncoder2(
@@ -324,6 +389,8 @@ class BFlowMain(pl.LightningModule):
             * len(self.hparams["to_infer"]),  # latent_dim dimensions per encoder
             n_blocks=n_ACBs,
             alpha_clip=alpha_clip,
+            t_abs=self.hparams["t_abs"],
+            s_abs=self.hparams["s_abs"],
         )
 
         self.norm_dist = torch.distributions.normal.Normal(0.0, 1.0, validate_args=None)
@@ -342,9 +409,9 @@ class BFlowMain(pl.LightningModule):
             ), "file does not exist (%s) : %s" % (param, encoders_paths[param])
             encoders[param] = BFlowEncoder.load_from_checkpoint(encoders_paths[param])
 
-            encoders[param] = encoders[param].to("cuda")
-            encoders[param].freeze()
+            # encoders[param] = encoders[param].to(self.device)
             encoders[param].eval()
+            encoders[param].freeze()
 
         ## Update hyperparameters and check that encoders have the same settings
         ## Store encoders
@@ -432,7 +499,7 @@ class BFlowMain(pl.LightningModule):
         # Made sure that it is well inverted
 
         r = torch.sqrt(torch.sum(z ** 2, dim=1))
-        angle = r * 1.5
+        angle = r * self.hparams["couple_factor"]
         if inverse:
             angle *= -1
         rot_matrix_1 = torch.stack([torch.cos(angle), torch.sin(angle)], dim=1)
@@ -480,20 +547,35 @@ class BFlowMain(pl.LightningModule):
         return params
 
     def get_new_batch_like(self, x, eval_mode):
+
+        # This is to get the same T_values across batches when we accumulate gradients
+        T_values_args = {
+            "T": self.hparams["T"],
+            "num_lengths": self.hparams["n_lengths"],
+            "vary_T": False if TAU_TAG in self.hparams["to_infer"] else True,
+            "eval_mode": eval_mode,
+            "mix_lengths": self.hparams["mix_lengths"],
+            "log_sampling": self.hparams["log_sampling"],
+        }
+        if eval_mode or not self.hparams["mix_lengths"]:
+            T_values = get_T_values(**T_values_args)
+        else:
+            if self.global_step > self.global_step_last_T_generated:
+                T_values = get_T_values(**T_values_args)
+                self.global_step_last_T_generated = self.global_step
+                self.last_T_values = T_values
+            else:
+                T_values = self.last_T_values
         x = generate_batch_like(
             x,
-            get_T_values(
-                self.hparams["T"],
-                self.hparams["n_lengths"],
-                vary_T=False if TAU_TAG in self.hparams["to_infer"] else True,
-                eval_mode=eval_mode,
-            ),
+            T_values,
             self.hparams["alpha_range"],
             self.hparams["tau_range"],
             self.generator,
             self.hparams["degree"],
             simulate_tau=TAU_TAG in self.hparams["to_infer"],
         )
+
         assert torch.isnan(x.pos).sum() == 0
         return x
 
@@ -537,6 +619,7 @@ class BFlowMain(pl.LightningModule):
         x = self.compute_features(x)
         true_theta = self.make_theta(x)
         h = self.get_latent_vector(x)
+        # Checked that with trained sumary nets h has a variance of 1
 
         if not sample:
             z, log_J = self.invertible_net(true_theta, h, inverse=False)
@@ -559,6 +642,9 @@ class BFlowMain(pl.LightningModule):
                 return theta, true_theta, x
 
     def training_step(self, batch, batch_idx, optimizer_idx=0):
+
+        # self.invertible_net.set_s_lim(self.global_step / 3000.0)
+        self.invertible_net.set_s_lim(4)
         z, log_J = self(batch, batch_idx=batch_idx)
         z_norm2 = torch.sum(z ** 2, dim=1)
         l = torch.mean(0.5 * z_norm2 - log_J, dim=0)
@@ -586,6 +672,12 @@ class BFlowMain(pl.LightningModule):
             self.metrics[param](preds[param], targets[param])
 
         return preds, targets, trajs
+
+    def on_pretrain_routine_start(self):
+        print("Pretrain routine")
+        print("Device is %s" % self.device)
+        for param in self.metrics:
+            self.metrics[param] = self.metrics[param].to(self.device)
 
     def log_metrics(self, step="test"):
         for param in self.hparams["to_infer"]:
@@ -634,14 +726,18 @@ class BFlowMain(pl.LightningModule):
             lr=self.hparams["lr"],
             amsgrad=True,
         )
-        inv_lambda = (
-            lambda step: max((self.hparams["gamma"] ** int(step // 350)), 0.05)
-            # if step >= 1500
-            # else 0.0
-        )
 
         scheduler = {
-            "scheduler": LambdaLR(optimizer, [inv_lambda]),
-            "interval": "step",
+            "scheduler": torch.optim.lr_scheduler.ReduceLROnPlateau(
+                optimizer,
+                patience=4,
+                min_lr=1e-4,
+                cooldown=4,
+                verbose=True,
+                factor=0.2,
+            ),
+            "interval": "epoch",
+            "monitor": "training_loss",
         }
+
         return [optimizer], [scheduler]

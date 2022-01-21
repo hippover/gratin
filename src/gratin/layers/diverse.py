@@ -7,6 +7,7 @@ from torch_geometric.nn import GlobalAttention, global_mean_pool
 from ..data.data_tools import edges_geom_causal
 from torch_sparse import SparseTensor
 from torch_geometric.data import Batch
+from torch.nn.utils import weight_norm
 
 ## Basic perceptron
 
@@ -29,13 +30,26 @@ class BoundSigmoid(nn.Module):
         )
 
 
+class ResidualNet(nn.Module):
+    def __init__(self, mod):
+        super(ResidualNet, self).__init__()
+        self.mod = mod
+
+    def forward(self, x):
+        M = self.mod(x)
+        return 0.1 * M + x[:, : M.shape[1]]
+
+
 def MLP(
     channels,
     activation="leaky",
     last_activation="identity",
+    use_batch_norm=True,
     bias=True,
     dropout=0.0,
     out_range=None,
+    residual=False,
+    use_weight_norm=False,
 ):
 
     if out_range is not None:
@@ -49,21 +63,35 @@ def MLP(
         activations = [nn.LeakyReLU(0.2) for i in range(1, len(channels) - 1)] + [
             last_activation
         ]
+    elif activation == "ELU":
+        activations = [nn.ELU() for i in range(1, len(channels) - 1)] + [
+            last_activation
+        ]
     else:
         activations = [nn.ReLU() for i in range(1, len(channels) - 1)] + [
             last_activation
         ]
-    return nn.Sequential(
+
+    norm_function = lambda lin: lin
+    if use_weight_norm:
+        norm_function = lambda lin: weight_norm(lin)
+
+    sequential = nn.Sequential(
         *[
             nn.Sequential(
-                nn.Dropout(dropout),
-                nn.Linear(channels[i - 1], channels[i], bias=bias),
-                nn.BatchNorm1d(channels[i]),
+                nn.Dropout(dropout) if dropout > 0.0 else nn.Identity(),
+                norm_function(nn.Linear(channels[i - 1], channels[i], bias=bias)),
+                nn.BatchNorm1d(channels[i]) if use_batch_norm else nn.Identity(),
                 activations[i - 1],
             )
             for i in range(1, len(channels))
         ]
     )
+
+    if not residual:
+        return sequential
+    else:
+        return ResidualNet(sequential)
 
 
 def batch_from_positions(pos, N, L, D, degree):
@@ -157,6 +185,9 @@ def generate_batch_like(
     # print("BS = %d" % BS)
     SBS_min = BS // len(T_values)
     # print("SBS = %s" % SBS)
+
+    if not x.pos.is_cuda:
+        x.pos = x.pos.cuda()
 
     for T in T_values:
         SBS = int(SBS_min)
