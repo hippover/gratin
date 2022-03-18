@@ -297,7 +297,7 @@ class ExpTrajDataSet(Dataset):
     def get(self, idx):
 
         noisy_pos = self.trajs[idx]
-        traj_info = {"index": idx,"pos_uncertainty":0.03}
+        traj_info = {"index": idx, "pos_uncertainty": 0.03}
         return TrajData(
             noisy_pos,
             graph_info=self.graph_info,

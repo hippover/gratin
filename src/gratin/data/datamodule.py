@@ -56,8 +56,10 @@ class DataModule(pl.LightningDataModule):
                 ds, [19 * (self.ds_params["N"] // 20), 1 * (self.ds_params["N"] // 20)]
             )
         if stage == "test" or stage is None:
+            ds_params_test = dict(ds_params)
+            ds_params_test["N"] //= 10
             ds = TrajDataSet(
-                **ds_params,
+                **ds_params_test,
                 graph_info=self.graph_info,
                 seed_offset=self.ds_params["N"] * (self.epoch_count + 1),
             )

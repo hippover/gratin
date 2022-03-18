@@ -10,7 +10,11 @@ def get_predictions_of_dl(model, dl, latent_samples=0):
     info = defaultdict(lambda: [])
     if latent_samples > 0:
         latent = []
-    for batch in tqdm(dl):
+    if len(dl) > 300:
+        wrapper = tqdm
+    else:
+        wrapper = lambda x: x
+    for batch in wrapper(dl):
         batch = batch.to(model.device)
         with torch.no_grad():
             out, h = model(batch)
@@ -22,10 +26,6 @@ def get_predictions_of_dl(model, dl, latent_samples=0):
         info["noise"].append(batch.noise[:, 0].detach().cpu().numpy())
         info["log_tau"].append(batch.log_tau[:, 0].detach().cpu().numpy())
         info["log_diffusion"].append(batch.log_diffusion[:, 0].detach().cpu().numpy())
-        info["drift"].append(batch.drift.detach().cpu().numpy())
-        info["drift_norm"].append(batch.drift_norm[:, 0].detach().cpu().numpy())
-        info["force"].append(batch.force.detach().cpu().numpy())
-        info["force_norm"].append(batch.force_norm[:, 0].detach().cpu().numpy())
         if latent_samples > 0:
             if len(latent) * h.shape[0] <= latent_samples:
                 latent.append(h.detach().cpu().numpy())
