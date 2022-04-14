@@ -16,10 +16,20 @@ import logging
 
 logging.getLogger("pytorch_lightning").setLevel(logging.ERROR)
 
+graph_info = {
+    "edges_per_point": 10,
+    "clip_trajs": False,
+    "scale_types": ["step_sum", "pos_std", "step_std"],
+    "log_features": True,
+    "data_type": "no_features",  # no features because features are all computed by the model
+    "edge_method": "geom_causal",
+}
+
 
 def train_model(
     export_path: str,
     time_delta: float,
+    max_n_epochs: int = 100,
     num_workers: int = 0,  # number of workers during the training process (should be < # CPUs)
     dim: int = 2,  # Dimension of trajectories. 2 or 3
     log_diffusion_range: tuple = (
@@ -38,14 +48,7 @@ def train_model(
     assert os.path.isdir(export_path)
 
     dl_params = {"batch_size": 128, "num_workers": num_workers}
-    graph_info = {
-        "edges_per_point": 10,
-        "clip_trajs": False,
-        "scale_types": ["step_sum", "pos_std", "step_std"],
-        "log_features": True,
-        "data_type": "no_features",  # no features because features are all computed by the model
-        "edge_method": "geom_causal",
-    }
+
     ds_params = {
         "dim": dim,  # can be (1, 2 or 3)
         "RW_types": [
@@ -105,7 +108,7 @@ def train_model(
         reload_dataloaders_every_n_epochs=1,
         callbacks=[ES, LRM, CKPT],
         log_every_n_steps=150,
-        max_epochs=100,
+        max_epochs=max_n_epochs,
         detect_anomaly=True,
         track_grad_norm=2,
         logger=tb_logger,
