@@ -289,7 +289,7 @@ class BFlowFBM(pl.LightningModule):
 
     def training_step(self, batch, batch_idx, optimizer_idx=0):
         z, log_J = self(batch, batch_idx=batch_idx)
-        z_norm2 = torch.sum(z ** 2, dim=1)
+        z_norm2 = torch.sum(z**2, dim=1)
         l = torch.mean(0.5 * z_norm2 - log_J, dim=0)
         self.log("training_loss", value=l, on_step=False, on_epoch=True, prog_bar=True)
         self.log("z_norm", value=torch.mean(z_norm2), on_step=True, prog_bar=True)

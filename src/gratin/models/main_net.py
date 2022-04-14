@@ -1,15 +1,7 @@
 from collections import defaultdict
 import pytorch_lightning as pl
-
-try:
-
-    from pytorch_lightning.metrics.regression import MeanAbsoluteError as MAE
-    from pytorch_lightning.metrics import F1
-    from pytorch_lightning.metrics import ExplainedVariance as EV
-except:
-    from torchmetrics import MeanAbsoluteError as MAE
-    from torchmetrics.classification.f_beta import F1Score as F1
-    from torchmetrics import ExplainedVariance as EV
+from torchmetrics import MeanAbsoluteError as MAE
+from torchmetrics.classification.f_beta import F1Score as F1
 import torch.nn as nn
 import torch
 from functools import partial
@@ -18,6 +10,7 @@ from ..layers.features_init import *
 from ..training.network_tools import L2_loss, Category_loss, is_concerned
 from ..layers.encoders import *
 from torch.optim.lr_scheduler import ExponentialLR
+import scipy
 
 
 class MainNet(pl.LightningModule):
@@ -29,6 +22,7 @@ class MainNet(pl.LightningModule):
         dim: int,  # traj dim
         gamma: float = 0.98,
         lr: float = 1e-3,
+        log_distance_features: bool = True,
         RW_types: list = ["fBM"],
         scale_types: list = ["step_std"],
     ):
@@ -69,26 +63,18 @@ class MainNet(pl.LightningModule):
             self.MAE = MAE()
         if "model" in tasks:
             self.F1 = F1(len(self.hparams["RW_types"]))
-        if "drift_norm" in tasks:
-            self.EV = EV()
 
     def set_loss_scale(self):
         if "model" in self.losses:
-            self.loss_scale["model"] = 1.0
+            self.loss_scale["model"] = np.log(len(self.hparams["RW_types"]))
         if "alpha" in self.losses:
-            self.loss_scale["alpha"] = ((2.0 - 0.0) ** 2) / 12.0
-        if "drift_norm" in self.losses:
-            self.loss_scale["drift_norm"] = (0.5 ** 2) / 12
-        if "drift" in self.losses:
-            self.loss_scale["drift"] = 1.0
-        if "force_norm" in self.losses:
-            self.loss_scale["force_norm"] = (0.5 ** 2) / 12
-        if "force" in self.losses:
-            self.loss_scale["force"] = 2 * (80 ** 2) / 12
+            self.loss_scale["alpha"] = scipy.stats.uniform.var(loc=0, scale=2)
         if "log_tau" in self.losses:
-            self.loss_scale["log_tau"] = 1.0 / 12.0
+            self.loss_scale["log_tau"] = scipy.stats.uniform.var(
+                loc=0, scale=np.log(50 / 5)
+            )
         if "log_diffusion" in self.losses:
-            self.loss_scale["log_diffusion"] = ((-1 - (-3)) ** 2) / 12.0
+            self.loss_scale["log_diffusion"] = scipy.stats.uniform.var(loc=0, scale=8)
 
     def get_output_modules(self, tasks, latent_dim, dim, RW_types):
         outputs = {}
@@ -103,30 +89,6 @@ class MainNet(pl.LightningModule):
                 MLP([latent_dim, 2 * latent_dim, latent_dim, len(RW_types)]),
                 partial(self.get_target, target="model"),
                 Category_loss,
-            )
-        if "drift" in tasks:
-            outputs["drift"] = (
-                MLP([latent_dim, 2 * latent_dim, latent_dim, dim]),
-                partial(self.get_target, target="drift"),
-                L2_loss,
-            )
-        if "drift_norm" in tasks:
-            outputs["drift_norm"] = (
-                MLP([latent_dim, 2 * latent_dim, 1], last_activation=nn.ReLU()),
-                partial(self.get_target, target="drift_norm"),
-                L2_loss,
-            )
-        if "force" in tasks:
-            outputs["force"] = (
-                MLP([latent_dim, 2 * latent_dim, latent_dim, dim]),
-                partial(self.get_target, target="force"),
-                L2_loss,
-            )
-        if "force_norm" in tasks:
-            outputs["force_norm"] = (
-                MLP([latent_dim, 2 * latent_dim, 1], last_activation=nn.ReLU()),
-                partial(self.get_target, target="force_norm"),
-                L2_loss,
             )
         if "log_theta" in tasks:
             outputs["log_theta"] = (
@@ -163,14 +125,6 @@ class MainNet(pl.LightningModule):
             return data.alpha
         elif target == "model":
             return data.model
-        elif target == "drift":
-            return data.drift
-        elif target == "drift_norm":
-            return data.drift_norm
-        elif target == "force":
-            return data.force
-        elif target == "force_norm":
-            return data.force_norm
         elif target == "log_theta":
             return data.log_theta
         elif target == "log_tau":
@@ -183,23 +137,18 @@ class MainNet(pl.LightningModule):
     def forward(self, x):
 
         X, E, scales, orientation = self.features_maker(
-            x, scale_types=self.hparams["scale_types"]
+            x,
+            scale_types=self.hparams["scale_types"],
+            log_distance_features=self.hparams["log_distance_features"],
         )
-        x.adj_t = x.adj_t.set_value(E)
+        x.adj_t = x.adj_t.set_value(E, layout="coo")
         x.x = X
         x.scales = torch.cat([scales[k].view(-1, 1) for k in scales], dim=1)
         x.orientation = orientation
-        # print(x.seed)
-        # unique, counts = torch.unique(x.seed, return_counts=True)
-        # print(unique)
-        # print(counts)
-        # Checked that counts is filled with ones, and that no ID appear in two different batches
 
         assert x.x.shape[1] == self.hparams["x_dim"]
         h = self.encoder(x)
         out = {}
-        # targets = {}
-        # losses = {}
 
         for net in self.out_networks:
             out[net] = self.out_networks[net](h)
@@ -235,10 +184,6 @@ class MainNet(pl.LightningModule):
         losses = {}
         weights = {}
 
-        # Save h ?
-        # Callback ?
-        # Write to TB
-
         targets["length"] = batch.length
 
         for net in out:
@@ -255,6 +200,7 @@ class MainNet(pl.LightningModule):
                 on_step=False,
                 on_epoch=True,
                 logger=True,
+                batch_size=h.shape[0],
             )
 
             if net == "alpha":
@@ -265,6 +211,7 @@ class MainNet(pl.LightningModule):
                     on_epoch=True,
                     prog_bar=stage == "val",
                     logger=True,
+                    batch_size=h.shape[0],
                 )
             elif net == "model":
                 self.log(
@@ -274,15 +221,7 @@ class MainNet(pl.LightningModule):
                     on_epoch=True,
                     prog_bar=stage == "val",
                     logger=True,
-                )
-            elif net == "drift_norm":
-                self.log(
-                    "%s_EV" % stage,
-                    self.EV(out[net][w], targets[net][w]),
-                    on_step=False,
-                    on_epoch=True,
-                    prog_bar=stage == "val",
-                    logger=True,
+                    batch_size=h.shape[0],
                 )
 
         out["latent"] = h
@@ -295,6 +234,7 @@ class MainNet(pl.LightningModule):
             on_epoch=True,
             prog_bar=True,
             logger=True,
+            batch_size=h.shape[0],
         )
 
         for key, value in out.items():

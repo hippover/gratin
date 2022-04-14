@@ -1,6 +1,7 @@
 import torch_geometric.transforms as Transforms
 from torch_geometric.data import Dataset
 import numpy as np
+import warnings
 from ..simulation.diffusion_models import generators, params_sampler
 from ..simulation.traj_tools import *
 from ..data.data import TrajData
@@ -20,7 +21,6 @@ class TrajDataSet(Dataset):
         length_range: tuple,  # e.g = (5,50)
         noise_range: tuple,  # e.g. = (0.1,0.5),
         model_types: list,  # e.g. = ["fBM","CTRW"],
-        force_range: list,  # e.g. = (0.,0.3),
         seed_offset: int,  # e.g. = 0):
         time_delta: float,
         logdiffusion_range: tuple = (-2.0, 0.5),
@@ -34,17 +34,11 @@ class TrajDataSet(Dataset):
         self.generators = generators[dim]
         self.model_types = model_types
         self.length_range = length_range
-        self.force_range = force_range
         self.noise_range = noise_range
         self.dim = dim
         self.log_diff_range = logdiffusion_range  # (-2.0, 0.5)
         self.time_delta = time_delta
-
-        if self.graph_info["features_on_edges"] == False:
-            transform = Transforms.ToSparseTensor()
-        else:
-            transform = None
-        super(TrajDataSet, self).__init__(transform=transform)
+        super(TrajDataSet, self).__init__(transform=Transforms.ToSparseTensor())
 
     def len(self):
         return self.N
@@ -114,7 +108,7 @@ class TrajDataSet(Dataset):
             )
             raw_pos -= raw_pos[0]
             OK = np.isnan(raw_pos).sum() == 0
-            OK = OK and (np.max(raw_pos[:, 0]) > np.min(raw_pos[:, 0]))
+            # OK = OK and (np.max(raw_pos[:, 0]) > np.min(raw_pos[:, 0]))
             OK = OK or (traj_params["model"] == "empty")
             if not OK:
                 counter += 1
@@ -154,6 +148,7 @@ class TrajDataSet(Dataset):
 
         np.random.seed(seed)
         traj_params = self.get_traj_params()
+        traj_params["seed"] = seed
         # print(traj_params)
         # print(traj_params["log_diffusion"])
         raw_pos = self.get_raw_traj(traj_params)
@@ -177,14 +172,10 @@ class TrajDataSet(Dataset):
                 if i <= 3:
                     traj_params["model"] = "BM"
                     traj_params["diffusion"] = np.power(10.0, self.log_diff_range[1])
-                    traj_params["force_vec"] = (
-                        np.ones(self.dim) * (j / 10.0) * self.force_range[1]
-                    ) / np.sqrt(self.dim)
                     traj_params["params"] = {"alpha": 1.0}
                     traj_params["pos_uncertainty"] = 0.0
                 else:
                     traj_params = self.get_traj_params()
-                    traj_params["force_vec"] = np.ones(self.dim) * EMPTY_FIELD_VALUE
 
                 model = traj_params["model"]
                 raw_pos = self.get_raw_traj(traj_params)
@@ -195,28 +186,10 @@ class TrajDataSet(Dataset):
                     ax.plot(noisy_pos[:, 0])
                 else:
                     ax.plot(noisy_pos[:, 0], noisy_pos[:, 1])
-                    force_vec = traj_params["force_vec"]
-                    if np.linalg.norm(force_vec) > 0 and np.max(
-                        np.abs(force_vec)
-                    ) != np.abs(EMPTY_FIELD_VALUE):
-                        # print("plotting force")
-                        scale = traj_scale(raw_pos, "msd")
-                        u = scale * force_vec / np.linalg.norm(force_vec)
-                        ax.plot(
-                            [noisy_pos[0, 0], noisy_pos[0, 0] + u[0]],
-                            [noisy_pos[0, 1], noisy_pos[0, 1] + u[1]],
-                            c="red",
-                            lw=2,
-                        )
                 params = traj_params["params"]
                 pos_uncertainty = traj_params["pos_uncertainty"]
                 if "tau" in params:
                     desc = "$\\tau_c$ = %d" % params["tau"]
-                elif (
-                    model == "BM"
-                    and np.sum(traj_params["force_vec"] == EMPTY_FIELD_VALUE) == 0
-                ):
-                    desc = "BM | F = %.2f" % np.linalg.norm(traj_params["force_vec"])
                 elif "alpha" in params:
                     desc = f"{model[:4]} - $\\alpha$:{float(params['alpha']):{1}.{2}} - N{pos_uncertainty:{1}.{1}}"
                 else:
@@ -264,10 +237,7 @@ class ExpTrajDataSet(Dataset):
         self.graph_info = graph_info
         self.dim = dim
 
-        if self.graph_info["features_on_edges"] == False:
-            transform = Transforms.ToSparseTensor()
-        else:
-            transform = None
+        transform = Transforms.ToSparseTensor()
 
         super(ExpTrajDataSet, self).__init__(transform=transform)
 

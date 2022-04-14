@@ -37,15 +37,15 @@ class TrajsEncoder2(nn.Module):
 
         self.last_conv = MinimalJumpsConv(n_c, n_c, aggr="max")
 
-        # gate_nn = MLP([n_c, n_c, n_c // 2, 1])
-        # self.pooling = GlobalAttention(gate_nn=gate_nn)
-        self.pooling = global_mean_pool
+        gate_nn = MLP([3 * n_c, 256, 1])
+        self.pooling = GlobalAttention(gate_nn=gate_nn)
+        # self.pooling = global_mean_pool
 
         self.n_scales = n_scales
         self.traj_dim = traj_dim
 
         self.mlp = MLP(
-            [n_c + n_scales + traj_dim, 2 * latent_dim, latent_dim, latent_dim]
+            [3 * n_c + n_scales + traj_dim, 2 * latent_dim, latent_dim, latent_dim]
         )  # used to be tanh for last_activation
 
     def forward(self, data):
@@ -70,8 +70,8 @@ class TrajsEncoder2(nn.Module):
 
         x3 = self.last_conv(x=x2, edge_index=sparse_adj_t)
 
-        # x = torch.cat([x1, x2, x3], dim=1)
-        x = x1 + x2 + x3
+        x = torch.cat([x1, x2, x3], dim=1)
+        # x = x1 + x2 + x3
 
         x = self.pooling(x=x, batch=data.batch)
 
@@ -86,92 +86,3 @@ class TrajsEncoder2(nn.Module):
         out = self.mlp(x)
 
         return out
-
-
-## Encoder module
-class TrajsEncoder(nn.Module):
-    """
-    Without edge features
-    Succession of minimal jump conv
-    Followed by a pooling layer
-    And a final MLP that projects to the latent space
-    """
-
-    def __init__(
-        self,
-        x_dim,
-        n_c: int = 64,  # Number of convolution kernels
-        latent_dim: int = 8,
-    ):
-        super(TrajsEncoder, self).__init__()
-        # To compute moments of features
-
-        Conv = MinimalJumpsConv
-
-        f_inner_width = [128, 64]
-        moments = [1]
-        n_final_convolutions = 1
-
-        self.conv1 = Conv(
-            out_channels=n_c,
-            x_dim=x_dim,
-            f_inner_width=f_inner_width,
-            aggr="mean",
-            moments=moments,
-        )
-
-        self.conv2 = Conv(
-            out_channels=n_c,
-            x_dim=n_c,
-            f_inner_width=f_inner_width,
-            aggr="max",
-        )
-        final_convs = []
-        for i in range(n_final_convolutions):
-            final_convs.append(
-                Conv(
-                    out_channels=n_c,
-                    x_dim=(1 + 1 * (i == 0)) * n_c,
-                    f_inner_width=f_inner_width,
-                    aggr="mean",
-                )
-            )
-        self.final_convs = nn.ModuleList(final_convs)
-
-        K = 2 + n_final_convolutions
-        # K = 1
-        # if params_scarcity == 0:
-        gate_nn = MLP([K * n_c, n_c, n_c // 2, 1])
-        self.pooling = GlobalAttention(gate_nn=gate_nn)
-
-        self.mlp = MLP([K * n_c, latent_dim])  # used to be tanh for last_activation
-        # self.float()
-        # print("Final projector has size ", mlp_size)
-
-    def call_conv(self, conv, x, edge_index):
-        return conv(x=x, edge_index=edge_index)
-
-    def forward(self, data):
-
-        edge_index = data.adj_t  # .cuda()
-
-        x_1 = self.call_conv(self.conv1, x=data.x, edge_index=edge_index)
-        x_2 = self.call_conv(self.conv2, x=x_1, edge_index=edge_index)
-
-        # Concat two first depths of convolutions
-        x = torch.cat([x_1, x_2], dim=1)
-
-        convolved = [x]
-        for _, conv in enumerate(self.final_convs):
-            convolved.append(
-                self.call_conv(conv, x=convolved[-1], edge_index=edge_index)
-            )
-        # Concat all depths of convolutions
-        x = torch.cat(convolved, dim=1)
-        # "average" with attention over all nodes
-        x = self.pooling(x=x, batch=data.batch)
-
-        # Project to latent space
-        x = self.mlp(x)
-
-        return x

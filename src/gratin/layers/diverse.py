@@ -1,8 +1,6 @@
 import torch.nn as nn
 import torch
 import numpy as np
-from torch_sparse import matmul
-from torch_geometric.nn.conv import MessagePassing
 from torch_geometric.nn import GlobalAttention, global_mean_pool
 from ..data.data_tools import edges_geom_causal
 from torch_sparse import SparseTensor
@@ -186,8 +184,8 @@ def generate_batch_like(
     SBS_min = BS // len(T_values)
     # print("SBS = %s" % SBS)
 
-    if not x.pos.is_cuda:
-        x.pos = x.pos.cuda()
+    # if not x.pos.is_cuda:
+    #    x.pos = x.pos.cuda()
 
     for T in T_values:
         SBS = int(SBS_min)
@@ -275,8 +273,8 @@ class AlphaPredictor(nn.Module):
             np_ = np.product(np.array([s for s in p.shape]))
             # print(n, np_, p.shape)
             nparams += np_
-        print("alpha MLP size = ", MLP_size)
-        print("Alpha predictor has %d parameters" % nparams)
+        # print("alpha MLP size = ", MLP_size)
+        # print("Alpha predictor has %d parameters" % nparams)
 
     def forward(self, x):
         # We only normalize the last column (alpha_fit)

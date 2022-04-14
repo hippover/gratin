@@ -1,4 +1,4 @@
-from typing import Union
+from typing import List, Union
 import torch.nn as nn
 from torch_geometric.data import Batch
 from torch_scatter import scatter
@@ -6,9 +6,9 @@ import torch
 
 
 def scatter_std(X, B):
-    avg_X_2 = scatter(src=X ** 2, index=B, dim=0, reduce="mean")
+    avg_X_2 = scatter(src=X**2, index=B, dim=0, reduce="mean")
     avg_X = scatter(src=X, index=B, dim=0, reduce="mean")
-    Var = avg_X_2 - (avg_X ** 2)
+    Var = avg_X_2 - (avg_X**2)
     return torch.sqrt(Var)
 
 
@@ -76,7 +76,7 @@ class TrajsFeatures(nn.Module):
             dr = diff_per_graph(P, B)
             in_points = ~is_first_point(B)
             dr = dr[in_points]
-            dr_norm = torch.sqrt(1e-5 + torch.sum(dr ** 2, dim=1))
+            dr_norm = torch.sqrt(1e-5 + torch.sum(dr**2, dim=1))
 
         if "pos_std" in scale_types:
             P_STD = torch.sqrt(torch.sum(scatter_std(P, B) ** 2, dim=1))
@@ -96,7 +96,7 @@ class TrajsFeatures(nn.Module):
 
         if "step_var" in scale_types:
             # var = <dr^2> - <dr>^2
-            step_var = scatter(dr_norm ** 2, index=B[in_points], dim=0, reduce="mean")
+            step_var = scatter(dr_norm**2, index=B[in_points], dim=0, reduce="mean")
             # - torch.sum(
             #    scatter(dr, index=B[in_points], dim=0, reduce="mean") ** 2, dim=1
             # )
@@ -105,13 +105,20 @@ class TrajsFeatures(nn.Module):
 
     @classmethod
     def x_dim(cls, scale_types):
-        return 1 + len(scale_types) * 3
+        return 1 + len(scale_types) * 4
 
     @classmethod
     def e_dim(cls, scale_types):
-        return 1 + len(scale_types) * 4
+        return 1 + len(scale_types) * 6
 
-    def forward(self, data: Batch, scale_types=["pos_std"], return_intermediate=False):
+    def forward(
+        self,
+        data: Batch,
+        scale_types: List[str] = ["pos_std"],
+        return_intermediate: bool = False,
+        log_distance_features: bool = False,
+    ):
+
         B = data.batch
         P = data.pos
 
@@ -132,25 +139,29 @@ class TrajsFeatures(nn.Module):
             scale_factor = torch.index_select(s, dim=0, index=B).view(-1, 1)
             dr_ = dr / scale_factor
             p = P / scale_factor
-            dr_norm = torch.sqrt(1e-5 + torch.sum(dr_ ** 2, dim=1))
+            dr_norm = torch.sqrt(1e-5 + torch.sum(dr_**2, dim=1))
 
             cum_dist = cumsum_per_graph(dr_norm, B).view(-1, 1)
-            cum_msd = cumsum_per_graph(dr_norm ** 2, B).view(-1, 1)
+            cum_msd = cumsum_per_graph(dr_norm**2, B).view(-1, 1)
             node_features.append(cum_dist)
             node_features.append(cum_msd)
+            node_features.append(dr_norm.view(-1, 1))
             node_features.append(cummax_per_graph(dr_norm, B).view(-1, 1))
 
             end, start = p[row], p[col]
             d = end - start
-            d = torch.sqrt(torch.sum(d ** 2, dim=1))
+            d = torch.sqrt(torch.sum(d**2, dim=1))
 
             end_jump, start_jump = dr_[row], dr_[col]
             corr = torch.sum(end_jump * start_jump, dim=1)
 
-            edge_features.append(d.view(-1, 1))
+            norm = lambda x: torch.log(1e-8 + x) if log_distance_features else x
+            edge_features.append(norm(d.view(-1, 1)))
             edge_features.append(corr.view(-1, 1))
-            edge_features.append(cum_dist[row] - cum_dist[col])
-            edge_features.append(cum_msd[row] - cum_msd[col])
+            edge_features.append(torch.sign(cum_dist[row] - cum_dist[col]))
+            edge_features.append(norm(torch.abs(cum_dist[row] - cum_dist[col])))
+            edge_features.append(torch.sign(cum_msd[row] - cum_msd[col]))
+            edge_features.append(norm(torch.abs(cum_msd[row] - cum_msd[col])))
 
         X = torch.cat(node_features, dim=1)
         E = torch.cat(edge_features, dim=1)
@@ -160,7 +171,7 @@ class TrajsFeatures(nn.Module):
 
         # Make a tensor with scales and L (to be used to infer D)
         u = scatter(dr, B, reduce="mean", dim=0)
-        u = u / torch.sqrt(1e-5 + torch.sum(u ** 2, dim=1).view(-1, 1))
+        u = u / torch.sqrt(1e-5 + torch.sum(u**2, dim=1).view(-1, 1))
         scales["log_L"] = torch.log(L.float())
 
         orientation = u

@@ -1,4 +1,3 @@
-# import torch_geometric.transforms as Transforms
 from torch_geometric.loader import DataLoader
 import pytorch_lightning as pl
 from torch.utils.data import random_split
@@ -15,7 +14,7 @@ EMPTY_FIELD_VALUE = -999
 
 
 class DataModule(pl.LightningDataModule):
-    def __init__(self, dl_params={}, ds_params={}, graph_info={}, no_parallel=False):
+    def __init__(self, dl_params={}, ds_params={}, graph_info={}):
 
         super().__init__()
 
@@ -29,7 +28,6 @@ class DataModule(pl.LightningDataModule):
         self.epoch_count = 0
 
         self.round = 0
-        self.no_parallel = no_parallel
         self.exclude_keys = ["raw_positions"]
 
     def setup(self, stage=None, plot=True):
@@ -40,7 +38,6 @@ class DataModule(pl.LightningDataModule):
             "dim": self.ds_params["dim"],
             "noise_range": self.ds_params["noise_range"],
             "model_types": self.ds_params["RW_types"],
-            "force_range": self.ds_params["force_range"],
             "logdiffusion_range": self.ds_params["logdiffusion_range"],
             "length_range": self.ds_params["length_range"],
             "time_delta": self.ds_params["time_delta"],
@@ -65,13 +62,6 @@ class DataModule(pl.LightningDataModule):
             )
             self.ds_test = ds
 
-        data = ds[0]
-        self.x_dim = data.x.shape[1]
-        try:
-            # self.e_dim = data.edge_attr.shape[1]
-            self.e_dim = data.adj_t.dim()
-        except:
-            self.e_dim = 0
         if self.round == 0 and plot:
             print("Plotting")
             self.traj_examples = ds.make_plot()
@@ -99,29 +89,19 @@ class DataModule(pl.LightningDataModule):
             drop_last=True,
             batch_size=self.batch_size,
             exclude_keys=self.exclude_keys,
-            sampler=DistributedSampler(self.ds_val) if not self.no_parallel else None,
+            # sampler=DistributedSampler(self.ds_val) if not self.no_parallel else None,
             pin_memory=True,
         )
 
     def test_dataloader(self, no_parallel=False):
         self.setup(stage="test")
-        if no_parallel:
-            # Otherwise, error Default process group is not initialized
-            return DataLoader(
-                self.ds_test,
-                num_workers=self.dl_params["num_workers"],
-                batch_size=self.batch_size,
-                drop_last=True,
-                exclude_keys=self.exclude_keys,
-                pin_memory=True,
-            )
-        else:
-            return DataLoader(
-                self.ds_test,
-                num_workers=self.dl_params["num_workers"],
-                batch_size=self.batch_size,
-                drop_last=True,
-                exclude_keys=self.exclude_keys,
-                sampler=DistributedSampler(self.ds_test),
-                pin_memory=True,
-            )
+
+        return DataLoader(
+            self.ds_test,
+            num_workers=self.dl_params["num_workers"],
+            batch_size=self.batch_size,
+            drop_last=True,
+            exclude_keys=self.exclude_keys,
+            # sampler=DistributedSampler(self.ds_test),
+            pin_memory=True,
+        )

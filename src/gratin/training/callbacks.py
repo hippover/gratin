@@ -11,7 +11,7 @@ import matplotlib.pyplot as plt
 
 
 class Plotter(Callback):
-    def on_init_end(self, trainer):
+    def on_fit_start(self, trainer, pl_module):
         self.max_capacity = int(1e4)
         self.tb = trainer.logger.experiment
         self.round = 0
@@ -131,7 +131,7 @@ class Plotter(Callback):
 
 
 class LatentSpaceSaver(Callback):
-    def on_init_end(self, trainer):
+    def on_fit_start(self, trainer, pl_module):
         self.max_capacity = int(5e3)  # TB samples down to 5e3 points anyway
         self.tb = trainer.logger.experiment
         self.round = 0

@@ -1,7 +1,5 @@
 import torch
 import numpy as np
-from tqdm.notebook import tqdm
-from collections import defaultdict
 from sklearn.metrics import f1_score
 from ..data.datamodule import EMPTY_FIELD_VALUE
 import torch.nn as nn
@@ -31,17 +29,14 @@ def Category_loss(out, target, w):
 
 
 ## Metrics for training
-
-
-def MAE_metric(out, info, field="alpha"):
-    return np.mean(np.abs(out[field] - np.reshape(info[field], out[field].shape)))
-
-
-def F1_metric(out, info, field="model"):
-    return f1_score(
-        y_true=info[field], y_pred=np.argmax(out[field], axis=1), average="micro"
-    )
-
-
 def is_concerned(target):
-    return torch.eq(torch.sum(1 * torch.eq(target, EMPTY_FIELD_VALUE), dim=1), 0)
+    """Returns 1 if the sample should be included in the loss (based on the value of the target)
+
+    Args:
+        target (_type_): _description_
+
+    Returns:
+        _torch.Tensor_: tensor of booleans
+    """
+    return torch.eq(torch.sum(1 * torch.isnan(target), dim=1), 0)
+    # return torch.eq(torch.sum(1 * torch.eq(target, EMPTY_FIELD_VALUE), dim=1), 0)

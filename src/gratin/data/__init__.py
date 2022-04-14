@@ -1,20 +1,16 @@
 default_graph_info = {
     "edges_per_point": 10,
-    "clip_trajs": True,
-    "convex_hull": False,
     "scale_types": ["step_std"],
-    "normalize_time": True,
-    "features_on_edges": False,
-    "position_features": True,
-    "log_features": True,
     "edge_method": "geom_causal",
     "data_type": "no_features",
 }
 
 default_ds_params = {
-    "noise_range": (0.0, 0.0),
-    "RW_types": ["empty"],
-    "force_range": (0.0, 0.0),
-    "length_range": (10, 50),
-    "time_delta": 1.0,
+    "dim":2,
+    "noise_range": (0.02, 0.05),
+    "RW_types": ["fBM", "LW", "sBM", "OU", "CTRW"],
+    "length_range": (7, 35),
+    "logdiffusion_range":(-2.5,1.1),
+    "N": int(1e5),
+    "time_delta": 0.03,
 }

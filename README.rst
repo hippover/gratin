@@ -33,8 +33,12 @@
 gratin
 ======
 
+.. warning:: text
 
-    Random walk analysis tool using graph neural networks
+    Gratin relies on pytorch-geometric package. 
+    See 'here <https://pytorch-geometric.readthedocs.io/en/latest/notes/installation.html>' to install it on your machine
+
+Random walk analysis tool using graph neural networks
 
 
 A longer description of your project goes here...

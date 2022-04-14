@@ -1,10 +1,11 @@
+""" 
+
 # Copyright 2019 by Gorka Munoz-Gil under the MIT license.
 # This file is part of the Anomalous diffusion challenge (AnDi), and is
 # released under the "MIT License Agreement". Please see the LICENSE
 # file that should have been included in the repository containing the file
 # (github.com/gorkamunoz/ANDI)
 
-""" 
 This file contains a recopilatory of diffusion models used in ANDI. The class
 is organized in three subclasses, each corresponding to a different dimensionality
 of the output trajectory.
@@ -104,7 +105,8 @@ class diffusion_models(object):
             dt = (1 - np.random.rand(T)) ** (-1 / sigma)
             dt[dt > T] = T + 1
             # Define the velocity
-            v = 10 * np.random.rand()
+            # v = 10 * np.random.rand()
+            v = 1
             # Generate the trajectory
             positions = np.empty(0)
             for t in dt:
@@ -153,7 +155,7 @@ class diffusion_models(object):
 
         def sbm(self, T, alpha, sigma=1):
             """Creates a scaled brownian motion trajectory"""
-            msd = (sigma ** 2) * np.arange(T + 1) ** alpha
+            msd = (sigma**2) * np.arange(T + 1) ** alpha
             dx = np.sqrt(msd[1:] - msd[:-1])
             dx = np.sqrt(2) * dx * erfcinv(2 - 2 * np.random.rand(len(dx)))
             return np.reshape(np.cumsum(dx) - dx[0], (-1, 1))
@@ -225,7 +227,8 @@ class diffusion_models(object):
                     "Continuous random walks only allow for anomalous exponents <= 1."
                 )
             # Generate the waiting times from power-law distribution
-            times = np.cumsum((1 - np.random.rand(T)) ** (-1 / alpha))
+            # times = np.cumsum(np.random.rand(T) ** (-1 / alpha))
+            times = np.cumsum((np.random.rand(T) ** (-1 / alpha)) - 1)
             times = times[: np.argmax(times > T) + 1]
             # Generate the positions of the walk
             posX = np.cumsum(np.random.randn(len(times)))
@@ -237,7 +240,7 @@ class diffusion_models(object):
                 regX = regularize(posX, times, T)
                 regY = regularize(posY, times, T)
                 # replace concat by stack
-                return np.stack((regX, regY), axis=1)
+                return np.stack((regX, regY), axis=1) / (1.0 - np.power(0.5, alpha))
             else:
                 return np.stack((times, posX, posY))
 
@@ -267,7 +270,8 @@ class diffusion_models(object):
             dt = (1 - np.random.rand(T)) ** (-1 / sigma)
             dt[dt > T] = T + 1
             # Define the velocity
-            v = 10 * np.random.rand()
+            # v = 10 * np.random.rand()
+            v = 1.0
             # Define the array where we save step length
             d = np.empty(0)
             # Define the array where we save the angle of the step
@@ -329,7 +333,7 @@ class diffusion_models(object):
 
         def sbm(self, T, alpha, sigma=1):
             """Creates a scaled brownian motion trajectory"""
-            msd = (sigma ** 2) * np.arange(T + 1) ** alpha
+            msd = (sigma**2) * np.arange(T + 1) ** alpha
             deltas = np.sqrt(msd[1:] - msd[:-1])
             dx = np.sqrt(2) * deltas * erfcinv(2 - 2 * np.random.rand(len(deltas)))
             dy = np.sqrt(2) * deltas * erfcinv(2 - 2 * np.random.rand(len(deltas)))
@@ -458,7 +462,8 @@ class diffusion_models(object):
             dt = (1 - np.random.rand(T)) ** (-1 / sigma)
             dt[dt > T] = T + 1
             # Define the velocity
-            v = 10 * np.random.rand()
+            # v = 10 * np.random.rand()
+            v = 1.0
             # Create the trajectory
             posX = np.empty(0)
             posY = np.empty(0)
@@ -525,7 +530,7 @@ class diffusion_models(object):
 
         def sbm(self, T, alpha, sigma=1):
             """Creates a scaled brownian motion trajectory"""
-            msd = (sigma ** 2) * np.arange(T + 1) ** alpha
+            msd = (sigma**2) * np.arange(T + 1) ** alpha
             deltas = np.sqrt(msd[1:] - msd[:-1])
             dx = np.sqrt(2) * deltas * erfcinv(2 - 2 * np.random.rand(len(deltas)))
             dy = np.sqrt(2) * deltas * erfcinv(2 - 2 * np.random.rand(len(deltas)))
@@ -608,12 +613,18 @@ class diffusion_models(object):
 
 
 def generate_OU(D, T, log_theta, sigma):
-    dt = 1e-4
-    dW = np.random.randn(T - 1, D) * np.sqrt(dt)
+    sub_sampling = int(max(1, np.power(10, 2 * log_theta + 1)))
+    dt = 1.0 / sub_sampling
+    dW = np.random.randn(sub_sampling * T, D) * np.sqrt(dt)
     theta = np.power(10, log_theta)
     X = np.zeros((T, D))
-    for i in range(1, T):
-        X[i] = X[i - 1] + theta * (-X[i - 1]) * dt + sigma * dW[i - 1]
+    x = X[0]
+    for i in range(1, T * sub_sampling):
+        x = x + theta * (-x) * dt + np.sqrt(2) * sigma * dW[i - 1]
+        if i % sub_sampling == 0:
+            X[i // sub_sampling] = x
+            if i // sub_sampling == X.shape[0] - 1:
+                break
     return X
 
 
@@ -650,7 +661,8 @@ generators = {
 
 def params_sampler(model, seed=0):
     if model == "CTRW":
-        return {"alpha": np.random.uniform(0.05, 1)}
+        # return {"alpha": np.random.uniform(0.05, 1)}
+        return {"alpha": np.random.uniform(0.1, 1.0)}
     elif model == "LW":
         return {"alpha": np.random.uniform(1.0, 2.0)}
     elif model == "fBM":
@@ -662,7 +674,7 @@ def params_sampler(model, seed=0):
     elif model == "OU":
         # log(Theta) = 2.5
         # La courbe du MSD se sépare de celle du BM à 10 pas
-        return {"log_theta": np.random.uniform(2.6, 4), "sigma": 1.0}
+        return {"log_theta": np.random.uniform(-2.0, 0.0), "sigma": 1.0}
     elif model == "ATTM":
         return {"alpha": np.random.uniform(0.05, 1.0)}
     elif model == "BM":

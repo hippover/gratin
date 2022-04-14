@@ -1,4 +1,6 @@
 from .diverse import *
+from torch_geometric.nn import MessagePassing
+from torch_sparse import matmul
 
 
 class MinimalJumpsConv(MessagePassing):
@@ -33,11 +35,11 @@ class MinimalJumpsConv(MessagePassing):
         for n, p in self.named_parameters():
             np_ = np.product(np.array([s for s in p.shape]))
             nparams += np_
-        print("f size = ", MLP_size)
-        print(
-            "Convolution has %d parameters. Input dim is %d, output is %d"
-            % (nparams, x_dim, out_channels)
-        )
+        # print("f size = ", MLP_size)
+        # print(
+        #    "Convolution has %d parameters. Input dim is %d, output is %d"
+        #    % (nparams, x_dim, out_channels)
+        # )
 
     def forward(self, x, edge_index):  # removed edge_attr
 

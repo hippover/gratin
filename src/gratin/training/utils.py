@@ -25,7 +25,7 @@ def setup_trainer(logger, dirpath="/gaia/models", tag="default"):
     ES = EarlyStopping(
         monitor="train_loss",  # We do not care about overfitting, train loss is more stable than validation
         min_delta=0.001,
-        patience=10,
+        patience=5,
         verbose=True,
         mode="min",
         strict=True,
@@ -34,19 +34,17 @@ def setup_trainer(logger, dirpath="/gaia/models", tag="default"):
     CKPT = ModelCheckpoint(
         dirpath=dirpath, filename=tag, monitor="train_loss", verbose=True, mode="min"
     )
-    LSS = LatentSpaceSaver()
     PLT = Plotter()
 
     trainer = pl.Trainer(
         auto_select_gpus=True,
         gradient_clip_val=1.0,
-        reload_dataloaders_every_epoch=True,
-        callbacks=[ES, LRM, CKPT, LSS, PLT],
+        reload_dataloaders_every_n_epochs=1,
+        callbacks=[ES, LRM, CKPT, PLT],
         log_every_n_steps=150,
-        flush_logs_every_n_steps=300,
-        terminate_on_nan=True,
+        max_epochs=100,
+        detect_anomaly=True,
         track_grad_norm=2,
-        weights_summary="full",
         logger=logger,
     )
     return trainer
