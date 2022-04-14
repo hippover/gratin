@@ -104,6 +104,7 @@ def train_model(
 
     trainer = pl.Trainer(
         auto_select_gpus=True,
+        gpus=1,
         gradient_clip_val=1.0,
         reload_dataloaders_every_n_epochs=1,
         callbacks=[ES, LRM, CKPT],
