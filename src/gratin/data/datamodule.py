@@ -33,6 +33,9 @@ class DataModule(pl.LightningDataModule):
     def setup(self, stage=None, plot=True):
         if stage is None:
             print("stage is None, strange...")
+        self.recreate_datasets(stage=stage, plot=plot)
+
+    def recreate_datasets(self, stage="fit", plot=True):
         ds_params = {
             "N": self.ds_params["N"],
             "dim": self.ds_params["dim"],
@@ -44,14 +47,20 @@ class DataModule(pl.LightningDataModule):
         }  # a bit redundant, but we recreate a ds_params, just to make sure it has only good arguments
 
         if stage == "fit" or stage is None:
-            ds = TrajDataSet(
+            self.ds_train = TrajDataSet(
                 **ds_params,
                 graph_info=self.graph_info,
                 seed_offset=self.ds_params["N"] * self.epoch_count,
             )
-            self.ds_train, self.ds_val = random_split(
-                ds, [19 * (self.ds_params["N"] // 20), 1 * (self.ds_params["N"] // 20)]
+        if self.round == 0:
+            ds_params_val = dict(ds_params)
+            ds_params_val["N"] //= 10
+            self.ds_val = TrajDataSet(
+                **ds_params_val,
+                graph_info=self.graph_info,
+                seed_offset=self.ds_params["N"] * 500,
             )
+
         if stage == "test" or stage is None:
             ds_params_test = dict(ds_params)
             ds_params_test["N"] //= 10
@@ -69,8 +78,8 @@ class DataModule(pl.LightningDataModule):
 
     def train_dataloader(self):
         # print(f"Call train_dataloader for the {self.epoch_count}th time")
-        self.setup(stage="fit")
         self.epoch_count += 1
+        self.recreate_datasets(stage="fit")
 
         return DataLoader(
             self.ds_train,
@@ -94,7 +103,7 @@ class DataModule(pl.LightningDataModule):
         )
 
     def test_dataloader(self, no_parallel=False):
-        self.setup(stage="test")
+        self.recreate_datasets(stage="test")
 
         return DataLoader(
             self.ds_test,
