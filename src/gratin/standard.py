@@ -13,6 +13,7 @@ from umap import ParametricUMAP
 import tensorflow as tf
 import numpy as np
 import logging
+import torch.cuda
 
 logging.getLogger("pytorch_lightning").setLevel(logging.ERROR)
 
@@ -103,8 +104,8 @@ def train_model(
     )
 
     trainer = pl.Trainer(
-        auto_select_gpus=True,
-        gpus=1,
+        auto_select_gpus=torch.cuda.is_available(),
+        gpus=1 * torch.cuda.is_available(),
         gradient_clip_val=1.0,
         reload_dataloaders_every_n_epochs=1,
         callbacks=[ES, LRM, CKPT],
