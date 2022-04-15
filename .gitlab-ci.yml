@@ -18,6 +18,14 @@ stages:          # List of stages for jobs, and their order of execution
   - test
   - deploy
 
+build win 32:
+    stage: build
+    tags:
+        - win
+        - 32-bits
+    script:
+        - echo "Coucou Win 32"
+
 build-job:       # This job runs in the build stage, which runs first.
   stage: build
   script:
