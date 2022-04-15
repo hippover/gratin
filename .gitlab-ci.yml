@@ -18,13 +18,12 @@ stages:          # List of stages for jobs, and their order of execution
   - test
   - deploy
 
-build win 32:
+build osx:
     stage: build
     tags:
-        - win
-        - 32-bits
+        - osx
     script:
-        - echo "Coucou Win 32"
+        - echo "Coucou OSX"
 
 build-job:       # This job runs in the build stage, which runs first.
   stage: build
