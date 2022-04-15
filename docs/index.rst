@@ -1,37 +1,32 @@
 ========================
-unsupervised-rw-analyzer
+Gratin
 ========================
 
-This is the documentation of **unsupervised-rw-analyzer**.
+This is the documentation of **Gratin**.
 
-.. note::
+------------
+Installation
+------------
 
-    This is the main page of your project's `Sphinx`_ documentation.
-    It is formatted in `reStructuredText`_. Add additional pages
-    by creating rst-files in ``docs`` and adding them to the `toctree`_ below.
-    Use then `references`_ in order to link them from this page, e.g.
-    :ref:`authors` and :ref:`changes`.
+To install Gratin on your machine, run
 
-    It is also possible to refer to the documentation of other Python packages
-    with the `Python domain syntax`_. By default you can reference the
-    documentation of `Sphinx`_, `Python`_, `NumPy`_, `SciPy`_, `matplotlib`_,
-    `Pandas`_, `Scikit-Learn`_. You can add more by extending the
-    ``intersphinx_mapping`` in your Sphinx's ``conf.py``.
+.. code::
 
-    The pretty useful extension `autodoc`_ is activated by default and lets
-    you include documentation from docstrings. Docstrings can be written in
-    `Google style`_ (recommended!), `NumPy style`_ and `classical style`_.
+    pip install gratin
+
+.. warning::
+
+    Gratin relies on the pytorch-geometric package. 
+    See `here <https://pytorch-geometric.readthedocs.io/en/latest/notes/installation.html>`_ to install it on your machine.
 
 
 Contents
 ========
 
 .. toctree::
-   :maxdepth: 2
-
+   :maxdepth: 3
    License <license>
    Authors <authors>
-   Changelog <changelog>
    Module Reference <api/modules>
 
 

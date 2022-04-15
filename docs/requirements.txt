@@ -1,11 +1,19 @@
 # Requirements file for ReadTheDocs, check .readthedocs.yml.
 # To build the module reference correctly, make sure every external package
 # under `install_requires` in `setup.cfg` is also listed here!
+importlib-metadata; python_version<"3.8"
+setuptools==59.5.0
 sphinx>=3.2.1
-pytorch >= 1.8.0
-pytorch-lightning==1.5.10
-umap-learn==0.5.2
+torch >= 1.10
+pytorch-lightning>=1.5.10
+umap-learn[parametric_umap]>=0.5.2
+tensorflow>=2.6.0
+keras
+iprogress
+ipywidgets
 tqdm
 matplotlib
 numpy
+fbm
+scipy
 # sphinx_rtd_theme
