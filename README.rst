@@ -24,7 +24,7 @@
 
 .. image:: https://readthedocs.org/projects/gratin/badge/?version=latest
     :alt: ReadTheDocs
-    :target: https://gratin.readthedocs.io/en/stable/
+    :target: https://gratin.readthedocs.io/en/latest/
 
 .. image:: https://img.shields.io/badge/-PyScaffold-005CA0?logo=pyscaffold
     :alt: Project generated with PyScaffold
@@ -59,10 +59,10 @@ See `here <https://pytorch-geometric.readthedocs.io/en/latest/notes/installation
 Reference
 --------- 
 
-- Hippolyte Verdier, Maxime Duval, François Laurent, Alhassan Cassé,  Christian Vestergaard, et al.. 
+* Hippolyte Verdier, Maxime Duval, François Laurent, Alhassan Cassé,  Christian Vestergaard, et al.. 
   Learning physical properties of anomalous random walks using graph neural networks. 2021. : https://arxiv.org/abs/2103.11738
 
-- Hippolyte Verdier, François Laurent, Alhassan Cassé, Christian L. Vestergaard, Christian G. Specht, Jean-Baptiste Masson
+* Hippolyte Verdier, François Laurent, Alhassan Cassé, Christian L. Vestergaard, Christian G. Specht, Jean-Baptiste Masson
   A maximum mean discrepancy approach reveals subtle changes in α-synuclein dynamics. 2022 : https://doi.org/10.1101/2022.04.11.487825
 
 

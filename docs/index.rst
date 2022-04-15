@@ -2,7 +2,41 @@
 Gratin
 ========================
 
-This is the documentation of **Gratin**.
+This is the documentation of **Gratin** *(Graphs on Trajectories for Inference)*.
+
+It is a tool to characterize trajectories of random walks, i.e. motion driven by random fluctuations. This type of motion is observed at various scales and in a wide diversity of systems. 
+While this package was developed for the purpose of analysing experimental data coming from photo-activated localization microscopy (PALM) experiments, nothing prevents it from being used on random walk recordings coming from other experimental setups and other domains !
+
+To extract *summary statistics* describing trajectories, Gratin mixes two ingredients :
+
+* an original neural network architecture using graph neural networks (GNN)
+* an inference scheme : :ref:`sbi`
+
+-----------
+Get started
+-----------
+
+It only takes one function to train a model fitting your experimental data in terms of trajectory length, localization uncertainty, diffusivity range and time interval : use the ``train_model()`` function !
+
+.. code:: python3
+
+    from gratin.standard import train_model
+    
+    train_model(
+        export_path = "/path/to/model", # indicate an empty folder where to store the model once trained
+        num_workers = 4, # number of workers used to simulate trajectories during the training phase
+        time_delta = 0.03, # time separating two successive position recordings in your trajectories (exposure time of the camera)
+        log_diffusion_range = (
+            -2.0,
+            1.1,
+        ),  # log-diffusion is drawn following a truncated centered gaussian in this range
+        length_range = (7, 35),  # length is drawn in a log-uniform way in this interval
+        noise_range = (
+            0.015,
+            0.05,
+        )  # localization uncertainty, in micrometers (one value per trajectory)
+        )
+
 
 ------------
 Installation
@@ -14,17 +48,21 @@ To install Gratin on your machine, run
 
     pip install gratin
 
-.. warning::
+.. note::
 
-    Gratin relies on the pytorch-geometric package. 
-    See `here <https://pytorch-geometric.readthedocs.io/en/latest/notes/installation.html>`_ to install it on your machine.
+    Gratin relies on the ``torch-geometric`` package, whose installation depends on your version of CUDA and Torch, as well as your OS. 
+    You'll find `here <https://pytorch-geometric.readthedocs.io/en/latest/notes/installation.html>`_ the one-line-command that will install it on your machine.
 
 
+
+--------
 Contents
-========
+--------
 
 .. toctree::
-   :maxdepth: 3
+   :maxdepth: 2
+
+   Simulation-based inference <sbi>
    License <license>
    Authors <authors>
    Module Reference <api/modules>
