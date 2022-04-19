@@ -25,7 +25,7 @@ class DataModule(pl.LightningDataModule):
         self.dl_params = dl_params
 
         self.batch_size = dl_params["batch_size"]
-        self.epoch_count = 0
+        self.epoch_count = 1
 
         self.round = 0
         self.exclude_keys = ["raw_positions"]
@@ -45,7 +45,8 @@ class DataModule(pl.LightningDataModule):
             "length_range": self.ds_params["length_range"],
             "time_delta": self.ds_params["time_delta"],
         }  # a bit redundant, but we recreate a ds_params, just to make sure it has only good arguments
-
+        print("DS params")
+        print(ds_params)
         if stage == "fit" or stage is None:
             self.ds_train = TrajDataSet(
                 **ds_params,
@@ -58,7 +59,7 @@ class DataModule(pl.LightningDataModule):
             self.ds_val = TrajDataSet(
                 **ds_params_val,
                 graph_info=self.graph_info,
-                seed_offset=self.ds_params["N"] * 500,
+                seed_offset=0,
             )
 
         if stage == "test" or stage is None:
@@ -102,7 +103,7 @@ class DataModule(pl.LightningDataModule):
             pin_memory=True,
         )
 
-    def test_dataloader(self, no_parallel=False):
+    def test_dataloader(self):
         self.recreate_datasets(stage="test")
 
         return DataLoader(

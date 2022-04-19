@@ -2,6 +2,7 @@ from gratin.models.main_net import MainNet
 from gratin.data.datamodule import DataModule
 import pytorch_lightning as pl
 from gratin.models.utils import get_predictions_of_dl
+from gratin.training.callbacks import Plotter
 import matplotlib.pyplot as plt
 from pytorch_lightning.callbacks import (
     EarlyStopping,
@@ -108,7 +109,7 @@ def train_model(
         gpus=1 * torch.cuda.is_available(),
         gradient_clip_val=1.0,
         reload_dataloaders_every_n_epochs=1,
-        callbacks=[ES, LRM, CKPT],
+        callbacks=[ES, LRM, CKPT, Plotter()],
         log_every_n_steps=150,
         max_epochs=max_n_epochs,
         detect_anomaly=True,
