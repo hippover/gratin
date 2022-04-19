@@ -42,12 +42,12 @@ def MLP(
     channels,
     activation="leaky",
     last_activation="identity",
-    use_batch_norm=True,
+    use_batch_norm=False,  # used to be True. this is very unstable with True...
     bias=True,
     dropout=0.0,
     out_range=None,
     residual=False,
-    use_weight_norm=False,
+    use_weight_norm=True,  # False,
 ):
 
     if out_range is not None:
@@ -253,36 +253,13 @@ class AlphaPredictor(nn.Module):
         self,
         p=0.0,
         input_dim=128,
-        alpha_fit=False,
-        subdiffusive_only=False,
         mlp_size=[128, 128, 64, 16],
     ):
-        """
-        alpha_fit : whether the latent space has its last dimension indicating TAMSD fit
-        """
-        super(AlphaPredictor, self).__init__()
-        if alpha_fit:
-            self.bn_alpha_fit = nn.BatchNorm1d(1)
-        self.alpha_fit = alpha_fit
-        self.subdiffusive_only = subdiffusive_only
-        MLP_size = [input_dim] + mlp_size + [1]
-        self.mlp = nn.Sequential(MLP(MLP_size, dropout=p))
 
-        nparams = 0
-        for n, p in self.named_parameters():
-            np_ = np.product(np.array([s for s in p.shape]))
-            # print(n, np_, p.shape)
-            nparams += np_
-        # print("alpha MLP size = ", MLP_size)
-        # print("Alpha predictor has %d parameters" % nparams)
+        super(AlphaPredictor, self).__init__()
+        MLP_size = [input_dim] + mlp_size + [1]
+        self.mlp = MLP(MLP_size, dropout=p)
 
     def forward(self, x):
-        # We only normalize the last column (alpha_fit)
-        # as all others have already been batch-normalized at this stage
-        if self.alpha_fit:
-            x[:, -1:] = self.bn_alpha_fit(x[:, -1:])
-        residual = self.mlp(x)  # Last column of x is the alpha fit by MSD
-        if self.subdiffusive_only:
-            return 0.5 + 0.5 * torch.nn.Tanh()(residual)
-        else:
-            return 1.0 + 0.99 * torch.nn.Tanh()(residual)
+        residual = self.mlp(x)
+        return 1.0 + 0.99 * torch.nn.Tanh()(residual)

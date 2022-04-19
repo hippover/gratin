@@ -2,12 +2,13 @@ from gratin.models.main_net import MainNet
 from gratin.data.datamodule import DataModule
 import pytorch_lightning as pl
 from gratin.models.utils import get_predictions_of_dl
-from gratin.training.callbacks import Plotter
+from gratin.training.callbacks import LatentSpaceSaver, Plotter
 import matplotlib.pyplot as plt
 from pytorch_lightning.callbacks import (
     EarlyStopping,
     LearningRateMonitor,
     ModelCheckpoint,
+    StochasticWeightAveraging,
 )
 import os
 from umap import ParametricUMAP
@@ -64,11 +65,12 @@ def train_model(
         "logdiffusion_range": log_diffusion_range,
         "length_range": length_range,
         "noise_range": noise_range,
+        "N": int(1e5),
     }
 
     model = MainNet(
-        tasks=["alpha", "model"],
-        n_c=16,
+        # tasks=["alpha", "model"],
+        n_c=32,
         latent_dim=16,
         lr=1e-3,
         dim=2,
@@ -107,13 +109,20 @@ def train_model(
     trainer = pl.Trainer(
         auto_select_gpus=torch.cuda.is_available(),
         gpus=1 * torch.cuda.is_available(),
-        gradient_clip_val=1.0,
+        # gradient_clip_val=1.0,
         reload_dataloaders_every_n_epochs=1,
-        callbacks=[ES, LRM, CKPT, Plotter()],
-        log_every_n_steps=150,
+        callbacks=[
+            ES,
+            LRM,
+            CKPT,
+            Plotter(),
+            # LatentSpaceSaver(),
+            # StochasticWeightAveraging(swa_epoch_start=10),
+        ],
+        log_every_n_steps=50,
         max_epochs=max_n_epochs,
         detect_anomaly=True,
-        track_grad_norm=2,
+        # track_grad_norm=2,
         logger=tb_logger,
     )
 
@@ -124,7 +133,7 @@ def train_model(
 
     model.eval()
     output, target, h = get_predictions_of_dl(
-        model, dm.test_dataloader(no_parallel=True), latent_samples=int(3e4)
+        model, dm.test_dataloader(), latent_samples=int(3e4)
     )
 
     umap_params = {

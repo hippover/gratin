@@ -16,6 +16,7 @@ import scipy
 class MainNet(pl.LightningModule):
     def __init__(
         self,
+        tasks: list,
         n_c: int,  # number of convolutions
         latent_dim: int,
         dim: int,  # traj dim
@@ -42,19 +43,7 @@ class MainNet(pl.LightningModule):
             + 1,  # + 1 car on passe la longueur comme scale aussi
         )
 
-        outputs = {}
-        outputs["alpha"] = (
-            AlphaPredictor(input_dim=latent_dim),
-            partial(self.get_target, target="alpha"),
-            # L2_loss,
-            nn.MSELoss(),
-        )
-        outputs["model"] = (
-            MLP([latent_dim, 2 * latent_dim, latent_dim, len(RW_types)]),
-            partial(self.get_target, target="model"),
-            # Category_loss,
-            nn.CrossEntropyLoss(),
-        )
+        outputs = self.get_output_modules(tasks, latent_dim, dim, RW_types)
 
         self.features_maker = TrajsFeatures()
 
@@ -66,30 +55,72 @@ class MainNet(pl.LightningModule):
             self.out_networks[out] = net
             self.targets[out] = target
             self.losses[out] = loss
-        self.losses = nn.ModuleDict(self.losses)
         self.out_networks = nn.ModuleDict(self.out_networks)
         self.loss_scale = defaultdict(lambda: 1.0 / 12.0)
         self.set_loss_scale()
 
-        self.MAE_train = MAE()
-        self.MAE_val = MAE()
-        self.MAE_test = MAE()
-        self.F1_train = F1(len(self.hparams["RW_types"]))
-        self.F1_val = F1(len(self.hparams["RW_types"]))
-        self.F1_test = F1(len(self.hparams["RW_types"]))
-        self.metrics = {}
-        self.metrics[("alpha", "train")] = self.MAE_train
-        self.metrics[("model", "train")] = self.F1_train
-        self.metrics[("alpha", "val")] = self.MAE_val
-        self.metrics[("model", "val")] = self.F1_val
-        self.metrics[("alpha", "test")] = self.MAE_test
-        self.metrics[("model", "test")] = self.F1_test
+        if "alpha" in tasks:
+            self.MAE = MAE()
+        if "model" in tasks:
+            self.F1 = F1(len(self.hparams["RW_types"]))
 
     def set_loss_scale(self):
         if "model" in self.losses:
             self.loss_scale["model"] = np.log(len(self.hparams["RW_types"]))
         if "alpha" in self.losses:
             self.loss_scale["alpha"] = scipy.stats.uniform.var(loc=0, scale=2)
+        if "log_tau" in self.losses:
+            self.loss_scale["log_tau"] = scipy.stats.uniform.var(
+                loc=0, scale=np.log(50 / 5)
+            )
+        if "log_diffusion" in self.losses:
+            self.loss_scale["log_diffusion"] = scipy.stats.uniform.var(loc=0, scale=8)
+
+    def get_output_modules(self, tasks, latent_dim, dim, RW_types):
+        outputs = {}
+        if "alpha" in tasks:
+            outputs["alpha"] = (
+                AlphaPredictor(input_dim=latent_dim),
+                partial(self.get_target, target="alpha"),
+                # L2_loss,
+                nn.MSELoss(),
+            )
+        if "model" in tasks:
+            outputs["model"] = (
+                MLP([latent_dim, 2 * latent_dim, latent_dim, len(RW_types)]),
+                partial(self.get_target, target="model"),
+                # Category_loss,
+                nn.CrossEntropyLoss(),
+            )
+        if "log_theta" in tasks:
+            outputs["log_theta"] = (
+                MLP([latent_dim, 2 * latent_dim, latent_dim, 1]),
+                partial(self.get_target, target="log_theta"),
+                L2_loss,
+            )
+        if "log_tau" in tasks:
+            outputs["log_tau"] = (
+                MLP(
+                    [latent_dim, 2 * latent_dim, latent_dim, latent_dim, 1],
+                    out_range=(1, 2),
+                ),
+                partial(self.get_target, target="log_tau"),
+                L2_loss,
+            )
+        if "log_diffusion" in tasks:
+            outputs["log_diffusion"] = (
+                MLP(
+                    [latent_dim, 2 * latent_dim, latent_dim, latent_dim, 1],
+                    out_range=(-4, 4),
+                ),
+                partial(self.get_target, target="log_diffusion"),
+                L2_loss,
+            )
+
+        if len(outputs) == 0:
+            print(tasks)
+            raise BaseException("No outputs !")
+        return outputs
 
     def get_target(self, data, target):
         if target == "alpha":
@@ -98,6 +129,12 @@ class MainNet(pl.LightningModule):
             return data.model.view(
                 -1,
             )
+        elif target == "log_theta":
+            return data.log_theta
+        elif target == "log_tau":
+            return data.log_tau
+        elif target == "log_diffusion":
+            return data.log_diffusion
         else:
             raise NotImplementedError("Unknown target %s" % target)
 
@@ -122,16 +159,9 @@ class MainNet(pl.LightningModule):
 
         return out, h
 
-    # def on_fit_start(self):
-    #    print("Self.device")
-    #    print(self.device)
-    #    for key, v in self.metrics.items():
-    #        v = v.to(self.device)
-
     def training_step(self, batch, batch_idx):
         loss, out, targets = self.shared_step(batch, stage="train")
-        return loss
-        # return {"loss": loss, "preds": out, "targets": targets}
+        return {"loss": loss, "preds": out, "targets": targets}
 
     def test_step(self, batch, batch_idx):
         loss, _, _ = self.shared_step(batch, stage="test")
@@ -178,16 +208,28 @@ class MainNet(pl.LightningModule):
                 batch_size=h.shape[0],
             )
 
-            self.metrics[(net, stage)](out[net][w], targets[net][w])
-            self.log(
-                "%s_%s_mx" % (net, stage),
-                self.metrics[(net, stage)],
-                on_step=False,
-                on_epoch=True,
-                prog_bar=stage != "val",
-                logger=True,
-                batch_size=h.shape[0],
-            )
+            if net == "alpha":
+                self.MAE(out[net][w], targets[net][w])
+                self.log(
+                    "%s_MAE" % stage,
+                    self.MAE,
+                    on_step=False,
+                    on_epoch=True,
+                    prog_bar=stage == "val",
+                    logger=True,
+                    batch_size=h.shape[0],
+                )
+            elif net == "model":
+                self.F1(out[net][w], targets[net][w])
+                self.log(
+                    "%s_F1" % stage,
+                    self.F1,
+                    on_step=False,
+                    on_epoch=True,
+                    prog_bar=stage == "val",
+                    logger=True,
+                    batch_size=h.shape[0],
+                )
 
         out["latent"] = h
         # Pondération des loss en fonction du nombre de samples concernés

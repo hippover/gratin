@@ -20,12 +20,13 @@ def L2_loss(out, target, w):
 def Category_loss(out, target, w):
     # w : whether each sample has to be included
     # return nn.CrossEntropyLoss()(torch.index_select(out,0,w), torch.index_select(target,0,w))
-    return nn.CrossEntropyLoss()(
+    l = nn.CrossEntropyLoss()(
         out[w],
         target[w].view(
             -1,
         ),
     )
+    return l
 
 
 ## Metrics for training
@@ -38,5 +39,8 @@ def is_concerned(target):
     Returns:
         _torch.Tensor_: tensor of booleans
     """
-    return torch.eq(torch.sum(1 * torch.isnan(target), dim=1), 0)
+    if len(target.shape) == 1:
+        return ~torch.isnan(target)
+    else:
+        return torch.eq(torch.sum(1 * torch.isnan(target), dim=1), 0)
     # return torch.eq(torch.sum(1 * torch.eq(target, EMPTY_FIELD_VALUE), dim=1), 0)

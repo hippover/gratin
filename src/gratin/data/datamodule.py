@@ -45,17 +45,17 @@ class DataModule(pl.LightningDataModule):
             "length_range": self.ds_params["length_range"],
             "time_delta": self.ds_params["time_delta"],
         }  # a bit redundant, but we recreate a ds_params, just to make sure it has only good arguments
-        print("DS params")
-        print(ds_params)
+
         if stage == "fit" or stage is None:
             self.ds_train = TrajDataSet(
                 **ds_params,
                 graph_info=self.graph_info,
+                # seed_offset=0
                 seed_offset=self.ds_params["N"] * self.epoch_count,
             )
         if self.round == 0:
             ds_params_val = dict(ds_params)
-            ds_params_val["N"] //= 10
+            ds_params_val["N"] = 3000
             self.ds_val = TrajDataSet(
                 **ds_params_val,
                 graph_info=self.graph_info,
@@ -68,6 +68,7 @@ class DataModule(pl.LightningDataModule):
             ds = TrajDataSet(
                 **ds_params_test,
                 graph_info=self.graph_info,
+                # seed_offset=0
                 seed_offset=self.ds_params["N"] * (self.epoch_count + 1),
             )
             self.ds_test = ds

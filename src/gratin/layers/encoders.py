@@ -35,7 +35,7 @@ class TrajsEncoder2(nn.Module):
             aggr="mean",
         )
 
-        self.last_conv = MinimalJumpsConv(n_c, n_c, aggr="max")
+        self.last_conv = GCNConv(n_c, n_c, aggr="max", improved=True)
 
         gate_nn = MLP([3 * n_c, 256, 1])
         self.pooling = GlobalAttention(gate_nn=gate_nn)

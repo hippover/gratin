@@ -43,7 +43,7 @@ class Plotter(Callback):
             pred = torch.cat(self.preds[param], dim=0).cpu()
 
             if param == "model":
-                info = info[:, 0]
+                # info = info
                 pred = torch.argmax(pred, dim=1)
                 n_models = len(pl_module.hparams["RW_types"])
                 CM = (
@@ -132,7 +132,7 @@ class Plotter(Callback):
 
 class LatentSpaceSaver(Callback):
     def on_fit_start(self, trainer, pl_module):
-        self.max_capacity = int(5e3)  # TB samples down to 5e3 points anyway
+        self.max_capacity = int(1e3)  # TB samples down to 5e3 points anyway
         self.tb = trainer.logger.experiment
         self.round = 0
 
@@ -157,8 +157,8 @@ class LatentSpaceSaver(Callback):
     def on_validation_epoch_end(self, trainer, pl_module):
         self.round += 1
 
-        if not self.round % 10 == 0:
-            return
+        # if not self.round % 10 == 0:
+        #    return
 
         H = torch.cat(self.latent_vectors, dim=0).detach().cpu().numpy()
         for param in tqdm(self.info, leave=False, colour="blue"):
@@ -166,7 +166,7 @@ class LatentSpaceSaver(Callback):
                 continue
             info = torch.cat(self.info[param], dim=0)
             if param == "model":
-                info = [pl_module.hparams["RW_types"][i] for i in info[:, 0]]
+                info = [pl_module.hparams["RW_types"][i] for i in info]
             else:
                 info = [
                     "%.2f" % i if i != EMPTY_FIELD_VALUE else 0.0 for i in info[:, 0]
