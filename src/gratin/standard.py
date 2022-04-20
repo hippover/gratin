@@ -109,7 +109,7 @@ def train_model(
     trainer = pl.Trainer(
         auto_select_gpus=torch.cuda.is_available(),
         gpus=1 * torch.cuda.is_available(),
-        # gradient_clip_val=1.0,
+        gradient_clip_val=10.0,
         reload_dataloaders_every_n_epochs=1,
         callbacks=[
             ES,
@@ -122,7 +122,7 @@ def train_model(
         log_every_n_steps=50,
         max_epochs=max_n_epochs,
         detect_anomaly=True,
-        # track_grad_norm=2,
+        track_grad_norm=2,
         logger=tb_logger,
     )
 

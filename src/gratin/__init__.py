@@ -14,3 +14,11 @@ except PackageNotFoundError:  # pragma: no cover
     __version__ = "unknown"
 finally:
     del version, PackageNotFoundError
+
+try:
+    import torch_geometric
+except:
+    print(
+        "Torch geometric is not installed, see here for instructions: \nhttps://pytorch-geometric.readthedocs.io/en/latest/notes/installation.html"
+    )
+    raise
