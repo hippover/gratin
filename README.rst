@@ -33,31 +33,28 @@
 |
 
 ===============================================
-GRATIN *(Graphs on Trajectories for Inference)*
+Gratin *(Graphs on Trajectories for Inference)*
 ===============================================
 
-Gratin is an analysis tool for stochastic trajectories, based on graph neural networks.
+Gratin is a tool to characterize trajectories of random walks, i.e. motion driven by random fluctuations. This type of motion is observed at various scales and in a wide diversity of systems. 
+While this package was developed for the purpose of analysing experimental data coming from photo-activated localization microscopy (PALM) experiments, nothing prevents it from being used on random walk recordings coming from other experimental setups and other domains !
 
-First, each trajectory is turned into a graph, in which positions are nodes, and edges are drawn between them following a pattern based on their time difference. 
+To extract *summary statistics* describing trajectories, Gratin mixes two ingredients :
 
-Then, features computed from normalized positions are attached to nodes : cumulated distance covered since origin, distance to origin, maximal step size since origin... 
-
-These graphs are then passed as input to a graph convolution module (graph neural network), which outputs, for each trajectory, a latent representation in a high-dimensional space. 
-
-This fixed-size latent vector is then passed as input to task-specific modules, which can predict the anomalous exponent or the random walk type. Several output modules can be trained at the same time, using the same graph convolution module, by summing task-specific losses. 
-
-The model can receive trajectories of any size as inputs. The high-dimensional latent representation of trajectories can be projected down to a 2D space for visualisation and provides interesting insights regarding the information extracted by the model (see details in the paper).
+* an original neural network architecture using graph neural networks (GNN)
+* a simulation-based inference framework
 
 -------
 Warning
 -------
 
-Gratin relies on the pytorch-geometric package. 
+Gratin requires the ``pytorch-geometric`` package, whose installation depends on you CUDA version. 
+Note however that you **do not need CUDA** to run Gratin, it works on CPU, it's only a bit slower. 
 See `here <https://pytorch-geometric.readthedocs.io/en/latest/notes/installation.html>`_ to install it on your machine.
 
----------
-Reference
---------- 
+----------
+References
+----------
 
 * Hippolyte Verdier, Maxime Duval, François Laurent, Alhassan Cassé,  Christian Vestergaard, et al.. 
   Learning physical properties of anomalous random walks using graph neural networks. 2021. : https://arxiv.org/abs/2103.11738

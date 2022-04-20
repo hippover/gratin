@@ -109,7 +109,7 @@ class TrajsFeatures(nn.Module):
 
     @classmethod
     def e_dim(cls, scale_types):
-        return 1 + len(scale_types) * 6
+        return 2 + len(scale_types) * 5
 
     def forward(
         self,
@@ -134,30 +134,36 @@ class TrajsFeatures(nn.Module):
 
         dr = diff_per_graph(P, B)
 
-        for k in scales:
-            s = scales[k]
-            scale_factor = torch.index_select(s, dim=0, index=B).view(-1, 1)
+        norm = lambda x: torch.log(1e-8 + x) if log_distance_features else x
+
+        for i, (scale_name, scale) in enumerate(scales.items()):
+            scale_factor = torch.index_select(scale, dim=0, index=B).view(-1, 1)
             dr_ = dr / scale_factor
             p = P / scale_factor
             dr_norm = torch.sqrt(1e-5 + torch.sum(dr_**2, dim=1))
 
             cum_dist = cumsum_per_graph(dr_norm, B).view(-1, 1)
             cum_msd = cumsum_per_graph(dr_norm**2, B).view(-1, 1)
-            node_features.append(cum_dist)
-            node_features.append(cum_msd)
-            node_features.append(dr_norm.view(-1, 1))
-            node_features.append(cummax_per_graph(dr_norm, B).view(-1, 1))
+            node_features.append(norm(cum_dist))
+            node_features.append(norm(cum_msd))
+            node_features.append(norm(dr_norm.view(-1, 1)))
+            node_features.append(norm(cummax_per_graph(dr_norm, B).view(-1, 1)))
 
             end, start = p[row], p[col]
             d = end - start
             d = torch.sqrt(torch.sum(d**2, dim=1))
 
             end_jump, start_jump = dr_[row], dr_[col]
-            corr = torch.sum(end_jump * start_jump, dim=1)
+            corr = torch.sum(end_jump * start_jump, dim=1) / (
+                torch.linalg.norm(end_jump, dim=1)
+                * torch.linalg.norm(start_jump, dim=1)
+            )
+            corr[torch.isnan(corr)] = 0.0
+            corr[torch.isinf(corr)] = 0.0
 
-            norm = lambda x: torch.log(1e-8 + x) if log_distance_features else x
             edge_features.append(norm(d.view(-1, 1)))
-            edge_features.append(corr.view(-1, 1))
+            if i == 0:
+                edge_features.append(corr.view(-1, 1))
             edge_features.append(torch.sign(cum_dist[row] - cum_dist[col]))
             edge_features.append(norm(torch.abs(cum_dist[row] - cum_dist[col])))
             edge_features.append(torch.sign(cum_msd[row] - cum_msd[col]))
@@ -168,6 +174,10 @@ class TrajsFeatures(nn.Module):
 
         assert X.shape[1] == TrajsFeatures.x_dim(scale_types)
         assert E.shape[1] == TrajsFeatures.e_dim(scale_types)
+        assert torch.sum(torch.isnan(X)) == 0
+        assert torch.sum(torch.isnan(E)) == 0, torch.sum(torch.isnan(E), dim=0)
+        assert torch.sum(torch.isinf(X)) == 0
+        assert torch.sum(torch.isinf(E)) == 0
 
         # Make a tensor with scales and L (to be used to infer D)
         u = scatter(dr, B, reduce="mean", dim=0)

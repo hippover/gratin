@@ -1,4 +1,11 @@
 import sys
+try:
+    import torch_geometric
+except:
+    print(
+        "Torch geometric is not installed, see here for instructions: \nhttps://pytorch-geometric.readthedocs.io/en/latest/notes/installation.html"
+    )
+    raise
 
 if sys.version_info[:2] >= (3, 8):
     # TODO: Import directly (no need for conditional) when `python_requires = >= 3.8`
@@ -14,11 +21,3 @@ except PackageNotFoundError:  # pragma: no cover
     __version__ = "unknown"
 finally:
     del version, PackageNotFoundError
-
-try:
-    import torch_geometric
-except:
-    print(
-        "Torch geometric is not installed, see here for instructions: \nhttps://pytorch-geometric.readthedocs.io/en/latest/notes/installation.html"
-    )
-    raise
