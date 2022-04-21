@@ -1,6 +1,6 @@
-========================
+******
 Gratin
-========================
+******
 
 This is the documentation of **Gratin** *(Graphs on Trajectories for Inference)*.
 
@@ -15,6 +15,9 @@ To extract *summary statistics* describing trajectories, Gratin mixes two ingred
 ---------------
 Getting started
 ---------------
+
+Training
+^^^^^^^^
 
 It only takes one function to train a model fitting your experimental data in terms of trajectory length, 
 localization uncertainty, diffusivity range and time interval !
@@ -39,10 +42,14 @@ localization uncertainty, diffusivity range and time interval !
         max_n_epochs = 100 # Maximum epochs on which to run the training.
         )
 
+
+Testing on simulations
+^^^^^^^^^^^^^^^^^^^^^^
+
 Once the model is trained, you can check its performance on simulated data using the following functions (note that you can pass parameters different from those used during training if you wish to test the model on data different from what it has been trained on). 
 This will print the mean absolute error of the prediction of the anomalous diffusion exponent, and the F1 score of the random walk model classification task. 
 This also plots embeddings of trajectories.
-See ::ref:`sbi` for more details about the training procedure and the considered types of random walk.
+See :ref:`sbi` for more details about the training procedure and the considered types of random walk.
 
 .. code:: python3
 
@@ -50,6 +57,9 @@ See ::ref:`sbi` for more details about the training procedure and the considered
 
     model, encoder = load_model(export_path="/path/to/model")
     plot_demo(model, encoder)
+
+Experimental trajectories
+^^^^^^^^^^^^^^^^^^^^^^^^^
 
 Finally, to use a trained model to get embeddings of your own trajectories along with predictions 
 of the anomalous diffusion exponent and of the random walk type, you can use the following function,
@@ -62,7 +72,7 @@ where ``trajectories`` is a list of ``(. ,D)`` Numpy arrays representing ``D``-d
 
     df = get_predictions(model, encoder, trajectories)
 
-All this is illustrated in the example notebook `here : <https://github.com/hippover/gratin/blob/master/examples/Train.ipynb>`.
+All this is illustrated in the example notebook `here <https://github.com/hippover/gratin/blob/master/examples/Train.ipynb>`_.
 
 ------------
 Installation
@@ -78,6 +88,7 @@ To install Gratin on your machine, run
 
     Gratin relies on the ``torch-geometric`` package, the installation of which depends on your version of CUDA and Torch, as well as your OS. 
     Note that it is **not mandatory to have a graphic card at all** to run Gratin.
+    
     You'll find `here <https://pytorch-geometric.readthedocs.io/en/latest/notes/installation.html>`_ the one-line-command that will install it on your machine.
 
 
@@ -92,7 +103,7 @@ Contents
    Simulation-based inference <sbi>
    License <license>
    Authors <authors>
-   Module Reference <api/modules>
+.. Module Reference <api/modules>
 
 
 Indices and tables
