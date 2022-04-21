@@ -12,17 +12,18 @@ To extract *summary statistics* describing trajectories, Gratin mixes two ingred
 * an original neural network architecture using graph neural networks (GNN)
 * an inference scheme : :ref:`sbi`
 
------------
-Get started
------------
+---------------
+Getting started
+---------------
 
-It only takes one function to train a model fitting your experimental data in terms of trajectory length, localization uncertainty, diffusivity range and time interval : use the ``train_model()`` function !
+It only takes one function to train a model fitting your experimental data in terms of trajectory length, 
+localization uncertainty, diffusivity range and time interval !
 
 .. code:: python3
 
     from gratin.standard import train_model
     
-    train_model(
+    model, encoder = train_model(
         export_path = "/path/to/model", # indicate an empty folder where to store the model once trained
         num_workers = 4, # number of workers used to simulate trajectories during the training phase
         time_delta = 0.03, # time separating two successive position recordings in your trajectories (exposure time of the camera)
@@ -34,9 +35,34 @@ It only takes one function to train a model fitting your experimental data in te
         noise_range = (
             0.015,
             0.05,
-        )  # localization uncertainty, in micrometers (one value per trajectory)
+        ),  # localization uncertainty, in micrometers (one value per trajectory)
+        max_n_epochs = 100 # Maximum epochs on which to run the training.
         )
 
+Once the model is trained, you can check its performance on simulated data using the following functions (note that you can pass parameters different from those used during training if you wish to test the model on data different from what it has been trained on). 
+This will print the mean absolute error of the prediction of the anomalous diffusion exponent, and the F1 score of the random walk model classification task. 
+This also plots embeddings of trajectories.
+See ::ref:`sbi` for more details about the training procedure and the considered types of random walk.
+
+.. code:: python3
+
+    from gratin.standard import load_model, plot_demo
+
+    model, encoder = load_model(export_path="/path/to/model")
+    plot_demo(model, encoder)
+
+Finally, to use a trained model to get embeddings of your own trajectories along with predictions 
+of the anomalous diffusion exponent and of the random walk type, you can use the following function,
+where ``trajectories`` is a list of ``(. ,D)`` Numpy arrays representing ``D``-dimensional trajectories 
+(coordinates are assumed to be chronologically ordered).
+
+.. code:: python3
+
+    from gratin.standard import get_predictions
+
+    df = get_predictions(model, encoder, trajectories)
+
+All this is illustrated in the example notebook `here : <https://github.com/hippover/gratin/blob/master/examples/Train.ipynb>`.
 
 ------------
 Installation
@@ -50,7 +76,8 @@ To install Gratin on your machine, run
 
 .. note::
 
-    Gratin relies on the ``torch-geometric`` package, whose installation depends on your version of CUDA and Torch, as well as your OS. 
+    Gratin relies on the ``torch-geometric`` package, the installation of which depends on your version of CUDA and Torch, as well as your OS. 
+    Note that it is **not mandatory to have a graphic card at all** to run Gratin.
     You'll find `here <https://pytorch-geometric.readthedocs.io/en/latest/notes/installation.html>`_ the one-line-command that will install it on your machine.
 
 

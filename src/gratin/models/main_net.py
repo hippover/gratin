@@ -180,7 +180,8 @@ class MainNet(pl.LightningModule):
 
             self.metrics[(net, stage)](out[net][w], targets[net][w])
             self.log(
-                "%s_%s_mx" % (net, stage),
+                "%s_%s_%s"
+                % (net, stage, self.metrics[(net, stage)].__class__.__qualname__),
                 self.metrics[(net, stage)],
                 on_step=False,
                 on_epoch=True,
