@@ -43,12 +43,15 @@ localization uncertainty, diffusivity range and time interval !
         )
 
 
-Testing on simulations
-^^^^^^^^^^^^^^^^^^^^^^
+Tests on simulations
+^^^^^^^^^^^^^^^^^^^^
 
-Once the model is trained, you can check its performance on simulated data using the following functions (note that you can pass parameters different from those used during training if you wish to test the model on data different from what it has been trained on). 
+Once the model is trained, you can check its performance on simulated data using the ``plot_demo()`` function. 
 This will print the mean absolute error of the prediction of the anomalous diffusion exponent, and the F1 score of the random walk model classification task. 
 This also plots embeddings of trajectories.
+
+Note that you can specify traits of the trajectories on which you wish to test it, using the same parameters as the ``train_model()`` function. 
+This is useful if you wish to test the model on data different from what it has been trained on. 
 See :ref:`sbi` for more details about the training procedure and the considered types of random walk.
 
 .. code:: python3
@@ -56,7 +59,12 @@ See :ref:`sbi` for more details about the training procedure and the considered 
     from gratin.standard import load_model, plot_demo
 
     model, encoder = load_model(export_path="/path/to/model")
-    plot_demo(model, encoder)
+    plot_demo(
+        model, 
+        encoder, 
+        length_range = (7, 55), # these values can differ from those used during training
+        noise_range = (0.015, 0.05)
+        )
 
 Experimental trajectories
 ^^^^^^^^^^^^^^^^^^^^^^^^^
@@ -71,6 +79,7 @@ where ``trajectories`` is a list of ``(. ,D)`` Numpy arrays representing ``D``-d
     from gratin.standard import get_predictions
 
     df = get_predictions(model, encoder, trajectories)
+    # Returns a pandas DataFrame with prediction results
 
 All this is illustrated in the example notebook `here <https://github.com/hippover/gratin/blob/master/examples/Train.ipynb>`_.
 
