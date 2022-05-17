@@ -18,9 +18,9 @@ class TrajsEncoder2(nn.Module):
         super(TrajsEncoder2, self).__init__()
         e_latent_dim = 16
 
-        self.nodes_MLP = MLP([x_dim, 128, x_dim], use_batch_norm=True)
+        self.nodes_MLP = MLP([x_dim, 128, x_dim], use_batch_norm=False)
 
-        self.edges_MLP = MLP([e_dim, 128, e_latent_dim], use_batch_norm=True)
+        self.edges_MLP = MLP([e_dim, 128, e_latent_dim], use_batch_norm=False)
 
         self.att_conv = GCNConv(
             in_channels=x_dim,
