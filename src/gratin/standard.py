@@ -10,14 +10,17 @@ from pytorch_lightning.callbacks import (
     EarlyStopping,
     LearningRateMonitor,
     ModelCheckpoint,
-    StochasticWeightAveraging,
 )
+from gratin.data.dataset import ExpTrajDataSet
+from torch_geometric.data import DataLoader
 import os
 from umap import ParametricUMAP
 import tensorflow as tf
 import numpy as np
 import logging
 import torch.cuda
+import pandas as pd
+from typing import Union, List
 
 logging.getLogger("pytorch_lightning").setLevel(logging.ERROR)
 
@@ -311,15 +314,34 @@ def plot_demo(
     plt.tight_layout()
 
 
-def get_predictions(model, encoder, trajectories):
-    assert len(trajectories) > 0, "Empty list of trajectories"
-    from gratin.models.utils import get_predictions_of_dl
-    from gratin.data.dataset import ExpTrajDataSet
-    from gratin.standard import graph_info
-    from torch_geometric.loader import DataLoader
-    import pandas as pd
+def trajectory_is_valid(t: pd.DataFrame):
+    if not t.shape[0] >= 7:
+        return False
+    if not t["t"].is_monotonic_increasing:
+        return False
+    else:
+        t_norm = (t["t"] - t["t"].min()).values
+        f_norm = np.arange(t.shape[0])
+        if np.linalg.norm(t_norm) * np.linalg.norm(f_norm) < np.sum(t_norm * f_norm):
+            return False
+    return True
 
-    indices = np.arange(len(trajectories))
+
+def get_predictions(model, encoder, trajectories: Union[List, pd.DataFrame]):
+    assert len(trajectories) > 0, "Empty list of trajectories"
+
+    if isinstance(trajectories, pd.DataFrame):
+        trajectories_indices = [
+            (n, t[["x", "y"]].values)
+            for n, t in trajectories.sort_values("frame").groupby("n")
+            if trajectory_is_valid(t)
+        ]
+        indices = np.array([_[0] for _ in trajectories_indices])
+        trajectories = [_[1] for _ in trajectories_indices]
+    else:
+        indices = np.arange(len(trajectories))
+    lengths = [t.shape[0] for t in trajectories]
+
     exp_ds = ExpTrajDataSet(
         dim=trajectories[0].shape[1], graph_info=graph_info, trajs=trajectories
     )
@@ -333,6 +355,7 @@ def get_predictions(model, encoder, trajectories):
         model.hparams["RW_types"][i] for i in np.argmax(probabilities, axis=1)
     ]
     df = pd.DataFrame(index=indices)
+    df["length"] = lengths
     df["alpha"] = outputs["alpha"]
     df["best_model"] = best_model
     df[["p_%s" % m for m in model.hparams["RW_types"]]] = probabilities

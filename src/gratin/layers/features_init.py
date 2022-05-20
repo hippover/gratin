@@ -6,9 +6,9 @@ import torch
 
 
 def scatter_std(X, B):
-    avg_X_2 = scatter(src=X**2, index=B, dim=0, reduce="mean")
+    avg_X_2 = scatter(src=X ** 2, index=B, dim=0, reduce="mean")
     avg_X = scatter(src=X, index=B, dim=0, reduce="mean")
-    Var = avg_X_2 - (avg_X**2)
+    Var = avg_X_2 - (avg_X ** 2)
     return torch.sqrt(Var)
 
 
@@ -76,7 +76,7 @@ class TrajsFeatures(nn.Module):
             dr = diff_per_graph(P, B)
             in_points = ~is_first_point(B)
             dr = dr[in_points]
-            dr_norm = torch.sqrt(1e-5 + torch.sum(dr**2, dim=1))
+            dr_norm = torch.sqrt(1e-5 + torch.sum(dr ** 2, dim=1))
 
         if "pos_std" in scale_types:
             P_STD = torch.sqrt(torch.sum(scatter_std(P, B) ** 2, dim=1))
@@ -96,7 +96,7 @@ class TrajsFeatures(nn.Module):
 
         if "step_var" in scale_types:
             # var = <dr^2> - <dr>^2
-            step_var = scatter(dr_norm**2, index=B[in_points], dim=0, reduce="mean")
+            step_var = scatter(dr_norm ** 2, index=B[in_points], dim=0, reduce="mean")
             # - torch.sum(
             #    scatter(dr, index=B[in_points], dim=0, reduce="mean") ** 2, dim=1
             # )
@@ -140,10 +140,10 @@ class TrajsFeatures(nn.Module):
             scale_factor = torch.index_select(scale, dim=0, index=B).view(-1, 1)
             dr_ = dr / scale_factor
             p = P / scale_factor
-            dr_norm = torch.sqrt(1e-5 + torch.sum(dr_**2, dim=1))
+            dr_norm = torch.sqrt(1e-5 + torch.sum(dr_ ** 2, dim=1))
 
             cum_dist = cumsum_per_graph(dr_norm, B).view(-1, 1)
-            cum_msd = cumsum_per_graph(dr_norm**2, B).view(-1, 1)
+            cum_msd = cumsum_per_graph(dr_norm ** 2, B).view(-1, 1)
             node_features.append(norm(cum_dist))
             node_features.append(norm(cum_msd))
             node_features.append(norm(dr_norm.view(-1, 1)))
@@ -151,7 +151,7 @@ class TrajsFeatures(nn.Module):
 
             end, start = p[row], p[col]
             d = end - start
-            d = torch.sqrt(torch.sum(d**2, dim=1))
+            d = torch.sqrt(torch.sum(d ** 2, dim=1))
 
             end_jump, start_jump = dr_[row], dr_[col]
             corr = torch.sum(end_jump * start_jump, dim=1) / (
@@ -181,7 +181,7 @@ class TrajsFeatures(nn.Module):
 
         # Make a tensor with scales and L (to be used to infer D)
         u = scatter(dr, B, reduce="mean", dim=0)
-        u = u / torch.sqrt(1e-5 + torch.sum(u**2, dim=1).view(-1, 1))
+        u = u / torch.sqrt(1e-5 + torch.sum(u ** 2, dim=1).view(-1, 1))
         scales["log_L"] = torch.log(L.float())
 
         orientation = u
