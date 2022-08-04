@@ -11,6 +11,7 @@ from ..training.network_tools import L2_loss, Category_loss, is_concerned
 from ..layers.encoders import *
 from torch.optim.lr_scheduler import ExponentialLR
 import scipy
+import logging
 
 
 class MainNet(pl.LightningModule):
@@ -27,19 +28,23 @@ class MainNet(pl.LightningModule):
     ):
         super().__init__()
 
+        if "mean_time_step" not in scale_types:
+            logging.warn(
+                'The network has no information about time steps. To add some, use "mean_time_step" as a scale'
+            )
+
         self.save_hyperparameters()
-        x_dim = TrajsFeatures.x_dim(scale_types)
-        e_dim = TrajsFeatures.e_dim(scale_types)
+        x_dim = TrajsFeaturesSimple.x_dim()
+        e_dim = TrajsFeaturesSimple.e_dim()
         self.save_hyperparameters({"x_dim": x_dim, "e_dim": e_dim})
 
-        self.encoder = TrajsEncoder2(
+        self.encoder = TrajsEncoder(
+            traj_dim=1,
+            x_dim=TrajsFeaturesSimple.x_dim(),
+            e_dim=TrajsFeaturesSimple.e_dim(),
             n_c=n_c,
             latent_dim=latent_dim,
-            x_dim=self.hparams["x_dim"],
-            e_dim=self.hparams["e_dim"],
-            traj_dim=dim,
-            n_scales=len(self.hparams["scale_types"])
-            + 1,  # + 1 car on passe la longueur comme scale aussi
+            n_scales=len(scale_types),
         )
 
         outputs = {}
@@ -56,7 +61,7 @@ class MainNet(pl.LightningModule):
             nn.CrossEntropyLoss(),
         )
 
-        self.features_maker = TrajsFeatures()
+        self.features_maker = TrajsFeaturesSimple()
 
         self.out_networks = {}
         self.losses = {}
@@ -103,15 +108,16 @@ class MainNet(pl.LightningModule):
 
     def forward(self, x):
 
-        X, E, scales, orientation = self.features_maker(
+        X, E, scales = self.features_maker(
             x,
-            scale_types=self.hparams["scale_types"],
-            log_distance_features=self.hparams["log_distance_features"],
+            # scale_types=self.hparams["scale_types"],
+            # log_distance_features=self.hparams["log_distance_features"],
         )
         x.adj_t = x.adj_t.set_value(E, layout="coo")
         x.x = X
-        x.scales = torch.cat([scales[k].view(-1, 1) for k in scales], dim=1)
-        x.orientation = orientation
+        x.scales = torch.cat(
+            [scales[k].view(-1, 1) for k in self.hparams["scale_types"]], dim=1
+        )
 
         assert x.x.shape[1] == self.hparams["x_dim"]
         h = self.encoder(x)

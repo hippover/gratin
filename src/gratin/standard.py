@@ -21,6 +21,7 @@ import logging
 import torch.cuda
 import pandas as pd
 from typing import Union, List
+import warnings
 
 logging.getLogger("pytorch_lightning").setLevel(logging.ERROR)
 
@@ -49,7 +50,7 @@ def _get_encoder_structure():
 
 def train_model(
     export_path: str,
-    time_delta: float,
+    time_delta_range: tuple,
     max_n_epochs: int = 100,
     num_workers: int = 0,  # number of workers during the training process (should be < # CPUs)
     dim: int = 2,  # Dimension of trajectories. 2 or 3
@@ -79,7 +80,7 @@ def train_model(
             "OU",
             "CTRW",
         ],  # Types of random walks used during training
-        "time_delta": time_delta,
+        "time_delta_range": time_delta_range,
         "logdiffusion_range": log_diffusion_range,
         "length_range": length_range,
         "noise_range": noise_range,
@@ -93,7 +94,7 @@ def train_model(
         lr=1e-3,
         dim=2,
         RW_types=ds_params["RW_types"],
-        scale_types=["step_std", "pos_std"],
+        scale_types=["step_std", "mean_time_step"],
     )
 
     pl.seed_everything(1)
@@ -144,7 +145,9 @@ def train_model(
         logger=tb_logger,
     )
 
-    trainer.fit(model=model, datamodule=dm)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        trainer.fit(model=model, datamodule=dm)
 
     results = trainer.test(model, dm.test_dataloader())
     print(results)
@@ -319,31 +322,42 @@ def trajectory_is_valid(t: pd.DataFrame):
         return False
     if not t["t"].is_monotonic_increasing:
         return False
-    else:
-        t_norm = (t["t"] - t["t"].min()).values
-        f_norm = np.arange(t.shape[0])
-        if np.linalg.norm(t_norm) * np.linalg.norm(f_norm) < np.sum(t_norm * f_norm):
-            return False
     return True
 
 
-def get_predictions(model, encoder, trajectories: Union[List, pd.DataFrame]):
+def get_predictions(
+    model,
+    encoder,  # UMAP
+    trajectories: Union[List, pd.DataFrame],
+    times: List = None,  # must be provided if trajectories is a list
+):
     assert len(trajectories) > 0, "Empty list of trajectories"
 
     if isinstance(trajectories, pd.DataFrame):
         trajectories_indices = [
-            (n, t[["x", "y"]].values)
-            for n, t in trajectories.sort_values("frame").groupby("n")
+            (n, t[["x", "y"]].values, t["t"].values)
+            for n, t in trajectories.sort_values(["frame", "t"]).groupby("n")
             if trajectory_is_valid(t)
         ]
         indices = np.array([_[0] for _ in trajectories_indices])
         trajectories = [_[1] for _ in trajectories_indices]
+        times = [_[2] for _ in trajectories_indices]
     else:
+        assert (
+            times is not None
+        ), "if trajectories is a list, then the 'times' argument must be provided"
+        assert len(times) == len(
+            trajectories
+        ), "times and trajectories must have the same length"
         indices = np.arange(len(trajectories))
+
     lengths = [t.shape[0] for t in trajectories]
 
     exp_ds = ExpTrajDataSet(
-        dim=trajectories[0].shape[1], graph_info=graph_info, trajs=trajectories
+        dim=trajectories[0].shape[1],
+        graph_info=graph_info,
+        trajs=trajectories,
+        times=times,
     )
     dl_exp = DataLoader(exp_ds, batch_size=128, shuffle=False, drop_last=False)
 

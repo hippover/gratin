@@ -39,6 +39,7 @@ from .utils_andi import regularize, bm1D, sample_sphere
 from math import pi as pi
 from scipy.special import erfcinv
 from functools import partial
+from scipy.stats import powerlaw
 
 # from .traj_tools import HiddenPrints
 import warnings
@@ -70,7 +71,9 @@ class diffusion_models(object):
             H = alpha * 0.5
             with warnings.catch_warnings():
                 warnings.simplefilter("ignore")
-                return np.reshape(fbm.fbm(int(T - 1), H), (-1, 1))
+                return np.reshape(fbm.fbm(int(T - 1), H, length=T), (-1, 1)) * np.sqrt(
+                    2
+                )
 
         def ctrw(self, T, alpha, regular_time=True):
             """Creates a 1D continuous time tandom walk trajectory
@@ -82,11 +85,14 @@ class diffusion_models(object):
                     "Continuous random walks only allow for anomalous exponents <= 1."
                 )
             # Generate the waiting times from power-law distribution
-            times = np.cumsum((1 - np.random.rand(T)) ** (-1 / alpha))
+            # p(t) = alpha t^{-(alpha+1)}
+            times = np.cumsum((1.0 - np.random.rand(T)) ** (-1.0 / alpha))
             times = times[: np.argmax(times > T) + 1]
             # Generate the positions of the walk
             positions = np.cumsum(np.random.randn(len(times)))
+            positions *= np.sqrt(2) / np.sqrt(alpha)
             positions -= positions[0]
+
             # Output
             if regular_time:
                 return np.reshape(regularize(positions, times, T), (-1, 1))
@@ -106,7 +112,7 @@ class diffusion_models(object):
             dt[dt > T] = T + 1
             # Define the velocity
             # v = 10 * np.random.rand()
-            v = 1
+            v = np.sqrt(2.0 / sigma)
             # Generate the trajectory
             positions = np.empty(0)
             for t in dt:
@@ -152,13 +158,6 @@ class diffusion_models(object):
                     ts = T
                 positions = np.append(positions, positions[-1] + bm1D(ts, Ds))
             return np.reshape(positions[:T] - positions[0], (-1, 1))
-
-        def sbm(self, T, alpha, sigma=1):
-            """Creates a scaled brownian motion trajectory"""
-            msd = (sigma**2) * np.arange(T + 1) ** alpha
-            dx = np.sqrt(msd[1:] - msd[:-1])
-            dx = np.sqrt(2) * dx * erfcinv(2 - 2 * np.random.rand(len(dx)))
-            return np.reshape(np.cumsum(dx) - dx[0], (-1, 1))
 
         def ctrwExp(self, T, alpha, regular_time=True):
             """Creates a 1D continuous time tandom walk trajectory with exp step distribution
@@ -235,12 +234,14 @@ class diffusion_models(object):
             posY = np.cumsum(np.random.randn(len(times)))
             posX -= posX[0]
             posY -= posY[0]
+            posX *= np.sqrt(2) / np.sqrt(alpha)
+            posY *= np.sqrt(2) / np.sqrt(alpha)
             # Regularize and output
             if regular_time:
                 regX = regularize(posX, times, T)
                 regY = regularize(posY, times, T)
                 # replace concat by stack
-                return np.stack((regX, regY), axis=1) / (1.0 - np.power(0.5, alpha))
+                return np.stack((regX, regY), axis=1)
             else:
                 return np.stack((times, posX, posY))
 
@@ -256,7 +257,7 @@ class diffusion_models(object):
                         fbm.fbm(int(T - 1), H, length=int(T)),
                     ),
                     axis=1,
-                )
+                ) * np.sqrt(2)
 
         def lw(self, T, alpha):
             """Creates a 2D Levy walk trajectory"""
@@ -271,7 +272,7 @@ class diffusion_models(object):
             dt[dt > T] = T + 1
             # Define the velocity
             # v = 10 * np.random.rand()
-            v = 1.0
+            v = np.sqrt(2.0 / sigma)
             # Define the array where we save step length
             d = np.empty(0)
             # Define the array where we save the angle of the step
@@ -288,7 +289,10 @@ class diffusion_models(object):
                     break
             d = d[: int(T)]
             angles = angles[: int(T)]
-            posX, posY = [d * np.cos(angles), d * np.sin(angles)]
+            posX, posY = [
+                np.sqrt(2) * d * np.cos(angles),
+                np.sqrt(2) * d * np.sin(angles),
+            ]
             return np.stack(
                 (np.cumsum(posX) - posX[0], np.cumsum(posY) - posY[0]), axis=1
             )
@@ -330,14 +334,6 @@ class diffusion_models(object):
                 posX = np.append(posX, posX[-1] + bm1D(ts, Ds))
                 posY = np.append(posY, posY[-1] + bm1D(ts, Ds))
             return np.stack((posX[:T] - posX[0], posY[:T] - posY[0]), axis=1)
-
-        def sbm(self, T, alpha, sigma=1):
-            """Creates a scaled brownian motion trajectory"""
-            msd = (sigma**2) * np.arange(T + 1) ** alpha
-            deltas = np.sqrt(msd[1:] - msd[:-1])
-            dx = np.sqrt(2) * deltas * erfcinv(2 - 2 * np.random.rand(len(deltas)))
-            dy = np.sqrt(2) * deltas * erfcinv(2 - 2 * np.random.rand(len(deltas)))
-            return np.stack((np.cumsum(dx) - dx[0], np.cumsum(dy) - dy[0]), axis=1)
 
         def ctrwExp(self, T, alpha, regular_time=True):
             """Creates a 2D continuous time tandom walk trajectory
@@ -421,7 +417,9 @@ class diffusion_models(object):
             times = np.append(0, times)
             times = times[: np.argmax(times > T) + 1]
             # Generate the positions of the walk
-            lengths = np.random.randn(len(times))
+            lengths = (
+                np.random.randn(len(times)) * np.sqrt(2) * np.sqrt(3) / np.sqrt(alpha)
+            )
             posX, posY, posZ = np.cumsum(sample_sphere(len(times), lengths), axis=1)
             posX = posX - posX[0]
             posY = posY - posY[0]
@@ -443,12 +441,12 @@ class diffusion_models(object):
                 warnings.simplefilter("ignore")
                 return np.stack(
                     (
-                        fbm.fbm(int(T - 1), H),
-                        fbm.fbm(int(T - 1), H),
-                        fbm.fbm(int(T - 1), H),
+                        fbm.fbm(int(T - 1), H, length=int(T)),
+                        fbm.fbm(int(T - 1), H, length=int(T)),
+                        fbm.fbm(int(T - 1), H, length=int(T)),
                     ),
                     axis=1,
-                )
+                ) * np.sqrt(2)
 
         def lw(self, T, alpha, regular_time=True):
             """Creates a 3D Levy walk trajectory"""
@@ -463,13 +461,13 @@ class diffusion_models(object):
             dt[dt > T] = T + 1
             # Define the velocity
             # v = 10 * np.random.rand()
-            v = 1.0
+            v = np.sqrt(2.0 / sigma)
             # Create the trajectory
             posX = np.empty(0)
             posY = np.empty(0)
             posZ = np.empty(0)
             for t in dt:
-                distX, distY, distZ = sample_sphere(1, v)
+                distX, distY, distZ = sample_sphere(1, v * np.sqrt(3))
                 posX = np.append(posX, distX * np.ones(int(t)))
                 posY = np.append(posY, distY * np.ones(int(t)))
                 posZ = np.append(posZ, distZ * np.ones(int(t)))
@@ -526,18 +524,6 @@ class diffusion_models(object):
                 posZ = np.append(posZ, posZ[-1] + distZ)
             return np.stack(
                 (posX[:T] - posX[0], posY[:T] - posY[0], posZ[:T] - posZ[0]), axis=1
-            )
-
-        def sbm(self, T, alpha, sigma=1):
-            """Creates a scaled brownian motion trajectory"""
-            msd = (sigma**2) * np.arange(T + 1) ** alpha
-            deltas = np.sqrt(msd[1:] - msd[:-1])
-            dx = np.sqrt(2) * deltas * erfcinv(2 - 2 * np.random.rand(len(deltas)))
-            dy = np.sqrt(2) * deltas * erfcinv(2 - 2 * np.random.rand(len(deltas)))
-            dz = np.sqrt(2) * deltas * erfcinv(2 - 2 * np.random.rand(len(deltas)))
-            return np.stack(
-                (np.cumsum(dx) - dx[0], np.cumsum(dy) - dy[0], np.cumsum(dz) - dz[0]),
-                axis=1,
             )
 
         def ctrwExp(self, T, alpha, regular_time=True):
@@ -613,10 +599,10 @@ class diffusion_models(object):
 
 
 def generate_OU(D, T, log_theta, sigma):
-    sub_sampling = int(max(1, np.power(10, 2 * log_theta + 1)))
+    sub_sampling = int(max(1, np.power(10.0, 2 * log_theta + 1)))
     dt = 1.0 / sub_sampling
     dW = np.random.randn(sub_sampling * T, D) * np.sqrt(dt)
-    theta = np.power(10, log_theta)
+    theta = np.power(10.0, log_theta)
     X = np.zeros((T, D))
     x = X[0]
     for i in range(1, T * sub_sampling):
@@ -628,13 +614,22 @@ def generate_OU(D, T, log_theta, sigma):
     return X
 
 
+def generate_sBM(D, T, alpha):
+    # https://pubs.rsc.org/en/content/articlehtml/2014/cp/c4cp02019g
+    K = alpha * np.power(np.arange(int(T) - 1) + 1, (alpha - 1.0))
+    K = np.reshape(K, (-1, 1))
+    dx = np.sqrt(2 * K) * np.random.randn(int(T) - 1, D)
+    dx = np.concatenate([np.zeros((1, D)), np.cumsum(dx, axis=0)], axis=0)
+    return dx
+
+
 generators = {
     1: {
         "ATTM": diffusion_models().oneD().attm,
         "CTRW": diffusion_models().oneD().ctrw,
         "fBM": diffusion_models().oneD().fbm,
         "LW": diffusion_models().oneD().lw,
-        "sBM": diffusion_models().oneD().sbm,
+        "sBM": partial(generate_sBM, D=1),
         "BM": diffusion_models().oneD().BM,
         "OU": partial(generate_OU, D=1),
     },
@@ -643,7 +638,7 @@ generators = {
         "CTRW": diffusion_models().twoD().ctrw,
         "fBM": diffusion_models().twoD().fbm,
         "LW": diffusion_models().twoD().lw,
-        "sBM": diffusion_models().twoD().sbm,
+        "sBM": partial(generate_sBM, D=2),
         "BM": diffusion_models().twoD().BM,
         "OU": partial(generate_OU, D=2),
     },
@@ -652,7 +647,7 @@ generators = {
         "CTRW": diffusion_models().threeD().ctrw,
         "fBM": diffusion_models().threeD().fbm,
         "LW": diffusion_models().threeD().lw,
-        "sBM": diffusion_models().threeD().sbm,
+        "sBM": partial(generate_sBM, D=3),
         "BM": diffusion_models().threeD().BM,
         "OU": partial(generate_OU, D=3),
     },

@@ -85,6 +85,8 @@ def MLP(
             for i in range(1, len(channels))
         ]
     )
+    sequential[0].in_channels = channels[0]
+    sequential[-1].out_channels = channels[0]
 
     if not residual:
         return sequential

@@ -2,13 +2,14 @@ from .skeleton_data import *
 
 
 def TrajData(
-    raw_positions, graph_info={}, traj_info={}, original_positions=None
+    raw_positions, time, graph_info={}, traj_info={}, original_positions=None
 ) -> SkeletonTrajData:
 
     assert raw_positions is not None, "raw_positions is None"
     if graph_info["data_type"] == "invariant":
         return InvariantTrajData(
             raw_positions,
+            time,
             graph_info=graph_info,
             traj_info=traj_info,
             original_positions=original_positions,
@@ -17,6 +18,7 @@ def TrajData(
     elif graph_info["data_type"] == "node_features":
         return NodeFeaturesTrajData(
             raw_positions,
+            time,
             graph_info=graph_info,
             traj_info=traj_info,
             original_positions=original_positions,
@@ -25,6 +27,7 @@ def TrajData(
     elif graph_info["data_type"] == "no_features":
         return SkeletonTrajData(
             raw_positions,
+            time,
             graph_info=graph_info,
             traj_info=traj_info,
             original_positions=original_positions,
@@ -49,8 +52,8 @@ class NodeFeaturesTrajData(SkeletonTrajData):
         dr_vec = positions[1:] - positions[:-1]
 
         MD = reshape(np.cumsum(dr) / (1.0 + np.arange(N - 1)))
-        MSD = reshape(np.power(np.cumsum(dr ** 2), 1.0 / 2) / (1.0 + np.arange(N - 1)))
-        MQD = reshape(np.power(np.cumsum(dr ** 4), 1.0 / 4) / (1.0 + np.arange(N - 1)))
+        MSD = reshape(np.power(np.cumsum(dr**2), 1.0 / 2) / (1.0 + np.arange(N - 1)))
+        MQD = reshape(np.power(np.cumsum(dr**4), 1.0 / 4) / (1.0 + np.arange(N - 1)))
         MaxD = reshape(np.maximum.accumulate(dr))
 
         for scale_name in graph_info["scale_types"]:
@@ -105,8 +108,8 @@ class InvariantTrajData(SkeletonTrajData):
         dr = get_steps(positions)
 
         MD = reshape(np.cumsum(dr) / (1.0 + np.arange(N - 1)))
-        MSD = reshape(np.power(np.cumsum(dr ** 2), 1.0 / 2) / (1.0 + np.arange(N - 1)))
-        MQD = reshape(np.power(np.cumsum(dr ** 4), 1.0 / 4) / (1.0 + np.arange(N - 1)))
+        MSD = reshape(np.power(np.cumsum(dr**2), 1.0 / 2) / (1.0 + np.arange(N - 1)))
+        MQD = reshape(np.power(np.cumsum(dr**4), 1.0 / 4) / (1.0 + np.arange(N - 1)))
         MaxD = reshape(np.maximum.accumulate(dr))
 
         for scale_name in graph_info["scale_types"]:

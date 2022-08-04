@@ -43,7 +43,7 @@ class DataModule(pl.LightningDataModule):
             "model_types": self.ds_params["RW_types"],
             "logdiffusion_range": self.ds_params["logdiffusion_range"],
             "length_range": self.ds_params["length_range"],
-            "time_delta": self.ds_params["time_delta"],
+            "time_delta_range": self.ds_params["time_delta_range"],
         }  # a bit redundant, but we recreate a ds_params, just to make sure it has only good arguments
 
         if stage == "fit" or stage is None:

@@ -13,15 +13,12 @@ class SkeletonTrajData(Data):
     def __init__(
         self,
         raw_positions,
+        time,
         graph_info={},
         traj_info={},
         original_positions=None,
         **kwargs,
     ):
-
-        # if raw_positions is None:
-        #    print("raw_positions was none")
-        #    raw_positions = np.random.normal(size=(10, 2))
         try:
             dim = raw_positions.shape[1]
 
@@ -48,6 +45,7 @@ class SkeletonTrajData(Data):
                     traj_info[key] = default_traj_info[key]
 
             raw_positions -= raw_positions[0]
+            time -= time[0]
             positions, clipped_steps = self.safe_positions(raw_positions, graph_info)
 
             edge_index = self.get_edges(positions.shape[0], graph_info)
@@ -60,6 +58,7 @@ class SkeletonTrajData(Data):
             super(SkeletonTrajData, self).__init__(
                 pos=torch.from_numpy(positions).float(),
                 original_pos=torch.from_numpy(original_positions).float(),
+                time=torch.from_numpy(time).float(),
                 clipped_steps=float_to_torch(clipped_steps),
                 edge_index=edge_index,
                 length=float_to_torch(positions.shape[0]),
@@ -74,7 +73,8 @@ class SkeletonTrajData(Data):
         except AttributeError as e:
             # print(e)
             super(SkeletonTrajData, self).__init__(
-                pos=torch.from_numpy(np.random.normal(size=(10, 2)))
+                pos=torch.from_numpy(np.random.normal(size=(10, 2))),
+                time=torch.arange(10),
             )
         self.coalesce()
 

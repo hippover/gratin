@@ -1,3 +1,4 @@
+from curses import raw
 import torch_geometric.transforms as Transforms
 from torch_geometric.data import Dataset
 import numpy as np
@@ -22,7 +23,7 @@ class TrajDataSet(Dataset):
         noise_range: tuple,  # e.g. = (0.1,0.5),
         model_types: list,  # e.g. = ["fBM","CTRW"],
         seed_offset: int,  # e.g. = 0):
-        time_delta: float,
+        time_delta_range: tuple,
         logdiffusion_range: tuple = (-2.0, 0.5),
     ):
         self.N = N
@@ -37,7 +38,7 @@ class TrajDataSet(Dataset):
         self.noise_range = noise_range
         self.dim = dim
         self.log_diff_range = logdiffusion_range  # (-2.0, 0.5)
-        self.time_delta = time_delta
+        self.time_delta_range = time_delta_range
         super(TrajDataSet, self).__init__(transform=Transforms.ToSparseTensor())
 
     def len(self):
@@ -85,6 +86,14 @@ class TrajDataSet(Dataset):
         pos_uncertainty = np.random.uniform(self.noise_range[0], self.noise_range[1])
         # noise_factor = np.random.uniform(self.noise_range[0], self.noise_range[1])
 
+        time_step_min, time_step_max = self.time_delta_range
+        time_step = np.power(
+            10.0,
+            np.random.uniform(
+                low=np.log10(time_step_min), high=np.log10(time_step_max)
+            ),
+        )
+
         trajs_params = {
             "model_index": model_index,
             "model": model,
@@ -93,6 +102,7 @@ class TrajDataSet(Dataset):
             "diffusion": diffusion,
             "log_diffusion": log_diffusion,
             "pos_uncertainty": pos_uncertainty,
+            "time_step": time_step,
         }
 
         return trajs_params
@@ -132,7 +142,7 @@ class TrajDataSet(Dataset):
         diffusion = traj_params["diffusion"]
         # force_norm = EMPTY_FIELD_VALUE
 
-        raw_pos *= np.sqrt(diffusion * self.time_delta)
+        raw_pos *= np.sqrt(diffusion * traj_params["time_step"])
 
         if traj_params["pos_uncertainty"] > 0.0:
             noisy_pos = raw_pos + traj_params["pos_uncertainty"] * np.random.randn(
@@ -217,8 +227,24 @@ class TrajDataSet(Dataset):
         traj_params.pop("params")
         traj_info.update(traj_params)
         # print("traj_info : %d" % traj_info["seed"])
+
+        time = np.arange(noisy_pos.shape[0]) * traj_info["time_step"]
+
+        L = noisy_pos.shape[0]
+        if L > 7:
+            n_points_to_remove = np.random.randint(0, L // 5)
+        else:
+            n_points_to_remove = 0
+        to_keep = np.random.choice(L, size=L - n_points_to_remove, replace=0)
+        to_keep_bool = np.isin(np.arange(L), to_keep)
+
+        noisy_pos = noisy_pos[to_keep_bool]
+        raw_pos = raw_pos[to_keep_bool]
+        time = time[to_keep_bool]
+
         return TrajData(
-            noisy_pos,
+            raw_positions=noisy_pos,
+            time=time,
             graph_info=self.graph_info,
             traj_info=traj_info,
             original_positions=raw_pos,
@@ -231,9 +257,11 @@ class ExpTrajDataSet(Dataset):
         dim: int,
         graph_info: dict,
         trajs: list,
+        times: list,
     ):  # e.g. = 0):
         self.N = len(trajs)
         self.trajs = trajs
+        self.times = times
         self.graph_info = graph_info
         self.dim = dim
 
@@ -267,9 +295,11 @@ class ExpTrajDataSet(Dataset):
     def get(self, idx):
 
         noisy_pos = self.trajs[idx]
+        time = self.times[idx]
         traj_info = {"index": idx, "pos_uncertainty": 0.03, "seed": idx}
         return TrajData(
             noisy_pos,
+            time=time,
             graph_info=self.graph_info,
             traj_info=traj_info,
             original_positions=None,
