@@ -25,6 +25,7 @@ class TrajDataSet(Dataset):
         seed_offset: int,  # e.g. = 0):
         time_delta_range: tuple,
         logdiffusion_range: tuple = (-2.0, 0.5),
+        max_blinking_fraction: float = 0.2,
     ):
         self.N = N
 
@@ -39,30 +40,34 @@ class TrajDataSet(Dataset):
         self.dim = dim
         self.log_diff_range = logdiffusion_range  # (-2.0, 0.5)
         self.time_delta_range = time_delta_range
+        self.max_blinking_fraction = max_blinking_fraction
         super(TrajDataSet, self).__init__(transform=Transforms.ToSparseTensor())
 
     def len(self):
         return self.N
 
     def generate_log_diffusion(self):
-        OK = False
         # log_diffusion = np.random.uniform(*self.log_diff_range)
-        diff_mean = 0.5 * (self.log_diff_range[0] + self.log_diff_range[1])
-        diff_std = 0.3 * (self.log_diff_range[1] - self.log_diff_range[0])
-        a, b = (self.log_diff_range[0] - diff_mean) / diff_std, (
-            self.log_diff_range[1] - diff_mean
-        ) / diff_std
-        while not OK:
-            log_diffusion = truncnorm.rvs(
-                a,
-                b,
-                loc=diff_mean,
-                scale=diff_std,
-            )
-            OK = (log_diffusion >= self.log_diff_range[0]) and (
-                log_diffusion <= self.log_diff_range[1]
-            )
-        return log_diffusion
+        if self.log_diff_range[0] == self.log_diff_range[1]:
+            return self.log_diff_range[0]
+        else:
+            OK = False
+            diff_mean = 0.5 * (self.log_diff_range[0] + self.log_diff_range[1])
+            diff_std = 0.3 * (self.log_diff_range[1] - self.log_diff_range[0])
+            a, b = (self.log_diff_range[0] - diff_mean) / diff_std, (
+                self.log_diff_range[1] - diff_mean
+            ) / diff_std
+            while not OK:
+                log_diffusion = truncnorm.rvs(
+                    a,
+                    b,
+                    loc=diff_mean,
+                    scale=diff_std,
+                )
+                OK = (log_diffusion >= self.log_diff_range[0]) and (
+                    log_diffusion <= self.log_diff_range[1]
+                )
+            return log_diffusion
 
     def get_traj_params(self):
         model_index = np.random.choice(len(self.model_types))
@@ -232,7 +237,9 @@ class TrajDataSet(Dataset):
 
         L = noisy_pos.shape[0]
         if L > 7:
-            n_points_to_remove = np.random.randint(0, L // 5)
+            n_points_to_remove = np.random.randint(
+                0, int(self.max_blinking_fraction * L)
+            )
         else:
             n_points_to_remove = 0
         to_keep = np.random.choice(L, size=L - n_points_to_remove, replace=0)
