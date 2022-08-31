@@ -1,14 +1,13 @@
-from curses import raw
 import torch_geometric.transforms as Transforms
 from torch_geometric.data import Dataset
 import numpy as np
-import warnings
 from ..simulation.diffusion_models import generators, params_sampler
 from ..simulation.traj_tools import *
 from ..data.data import TrajData
 import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import truncnorm
+import logging
 
 EMPTY_FIELD_VALUE = -999
 
@@ -30,7 +29,7 @@ class TrajDataSet(Dataset):
         self.N = N
 
         self.seed_offset = seed_offset
-        print("Create TrajDataset, seed_offset = %d" % seed_offset)
+        logging.debug("Create TrajDataset, seed_offset = %d" % seed_offset)
         self.graph_info = graph_info
 
         self.generators = generators[dim]
@@ -236,9 +235,9 @@ class TrajDataSet(Dataset):
         time = np.arange(noisy_pos.shape[0]) * traj_info["time_step"]
 
         L = noisy_pos.shape[0]
-        if L > 7:
+        if L > 7 and self.max_blinking_fraction > 0:
             n_points_to_remove = np.random.randint(
-                0, int(self.max_blinking_fraction * L)
+                0, int(self.max_blinking_fraction * L) + 1
             )
         else:
             n_points_to_remove = 0
