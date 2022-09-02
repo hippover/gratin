@@ -598,9 +598,25 @@ class diffusion_models(object):
             return X
 
 
-def generate_OU(D, T, log_theta, sigma):
+def generate_OU(D: int, T: int, log_theta: float, sigma: float):
+    """
+    Generates a D-dimensional Ornstein-Uhlenbeck process.
+    Width L of the trajectory: L = \sqrt{\sigma^2/\theta}
+    dx << L => dt << 1/\theta AND dt << 1/\sqrt{\theta \sigma^2}
+    Here, we take dt = 1/(10*\theta^2) so it's really OK (1/10\theta should be enough)
+
+    Args:
+        D (int): dimension
+        T (int): length of the desired output
+        log_theta (float): log_10 of the factor pulling the particle towards the center (elasticity constant)
+        sigma (float): intensity of the diffusion
+
+    Returns:
+        np.array: OU trajectory.
+    """
+
     sub_sampling = int(max(1, np.power(10.0, 2 * log_theta + 1)))
-    dt = 1.0 / sub_sampling
+    dt = 1.0 / sub_sampling  # The motion is sub-sampled so that dx << L
     dW = np.random.randn(sub_sampling * T, D) * np.sqrt(dt)
     theta = np.power(10.0, log_theta)
     X = np.zeros((T, D))
