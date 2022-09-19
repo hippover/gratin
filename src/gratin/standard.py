@@ -26,7 +26,7 @@ logging.getLogger("pytorch_lightning").setLevel(logging.ERROR)
 graph_info = {
     "edges_per_point": 10,
     "clip_trajs": False,
-    "scale_types": ["step_sum", "pos_std", "step_std"],
+    "scale_types": ["step_std", "mean_time_step"],
     "log_features": True,
     "data_type": "no_features",  # no features because features are all computed by the model
     "edge_method": "geom_causal",

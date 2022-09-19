@@ -49,3 +49,31 @@ def get_predictions_of_dl(model, dl, latent_samples=0):
         return outputs, info, h
 
     return outputs, info
+
+
+def get_predictions_of_dl_mmd(model, dl):
+
+    info = defaultdict(lambda: [])
+    latent = []
+    if len(dl) > 300:
+        wrapper = tqdm
+    else:
+        wrapper = lambda x: x
+    for batch in wrapper(dl):
+        batch = batch.to(model.device)
+        with torch.no_grad():
+            h = model(batch)
+        info["alpha"].append(batch.alpha[:, 0].detach().cpu().numpy())
+        info["model"].append(batch.model[:, 0].detach().cpu().numpy())
+        info["length"].append(batch.length[:, 0].detach().cpu().numpy())
+        info["noise"].append(batch.noise[:, 0].detach().cpu().numpy())
+        info["log_tau"].append(batch.log_tau[:, 0].detach().cpu().numpy())
+        info["log_diffusion"].append(batch.log_diffusion[:, 0].detach().cpu().numpy())
+        latent.append(h.detach().cpu().numpy())
+
+    for key in info:
+        info[key] = np.concatenate(info[key], axis=0)
+
+    h = np.concatenate(latent, axis=0)
+
+    return h, info
