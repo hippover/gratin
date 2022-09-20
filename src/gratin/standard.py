@@ -325,7 +325,7 @@ def trajectory_is_valid(t: pd.DataFrame):
 
 def get_predictions(
     model,
-    encoder,  # UMAP
+    encoder,  # UMAP or None
     trajectories: Union[List, pd.DataFrame],
     times: List = None,  # must be provided if trajectories is a list
 ):
@@ -371,8 +371,13 @@ def get_predictions(
     df["alpha"] = outputs["alpha"]
     df["best_model"] = best_model
     df[["p_%s" % m for m in model.hparams["RW_types"]]] = probabilities
-    df[["U_1", "U_2"]] = np.array(encoder(h))
-    h_cols = ["h_%d" % (i + 1) for i in range(h.shape[1])]
-    df[h_cols] = h
+    if encoder is not None:
+        # Gratin + UMAP
+        df[["U_1", "U_2"]] = np.array(encoder(h))
+        h_cols = ["h_%d" % (i + 1) for i in range(h.shape[1])]
+        df[h_cols] = h
+    else:
+        # Gratin trained directly in 2D with MMD loss
+        df[["z_1", "z_2"]] = h
 
     return df

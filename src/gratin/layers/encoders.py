@@ -5,11 +5,11 @@ from torch_geometric.nn import (
     GINConv,
     GINEConv,
     MessagePassing,
-    GlobalAttention,
     GCNConv,
     NNConv,
     InstanceNorm,
 )
+from torch_geometric.nn.aggr import AttentionalAggregation
 from torch.nn import BatchNorm1d
 from torch_sparse import SparseTensor
 from torch_scatter import scatter
@@ -141,14 +141,15 @@ class TrajsEncoder(nn.Module):
         gate_nn = MLP([3 * n_c, 32, 1])
         # Si le pooling est une simple moyenne, les gradients transmis aux convolutions sur graphes sont très petits.
         # Je n'ai pas encore trouvé d'explication...
-        self.pooling = GlobalAttention(gate_nn=gate_nn)
+        
+        self.pooling = AttentionalAggregation(gate_nn=gate_nn)
         # self.pooling = global_mean_pool
 
         self.n_scales = n_scales
         self.traj_dim = traj_dim
 
         self.mlp = MLP(
-            [(3 * n_c) + n_scales, 32, latent_dim],
+            [(3 * n_c) + n_scales, 32, 32, 2 * latent_dim + 16, latent_dim],
             use_batch_norm=True,
             use_weight_norm=False,
         )  # used to be tanh for last_activation
@@ -196,7 +197,7 @@ class TrajsEncoder(nn.Module):
         # We cut trajectories in sub-trajectories
         # We first pool by sub-trajectories using attention
         # We then average over so-obtained vectors
-        x = self.pooling(x=x, batch=B)
+        x = self.pooling(x=x, index=B)
         x = self.nodes_bn5(x)
 
         if self.n_scales > 0:

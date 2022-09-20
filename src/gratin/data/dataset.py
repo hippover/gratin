@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from scipy.stats import truncnorm
 import logging
+from scipy.stats import truncexpon
 
 EMPTY_FIELD_VALUE = -999
 
@@ -73,6 +74,7 @@ class TrajDataSet(Dataset):
         model = self.model_types[model_index]
         params = params_sampler(model, seed=None)
         # length = np.random.randint(low=self.length_range[0], high=self.length_range[1])
+        """
         length = int(
             np.power(
                 10,
@@ -81,6 +83,14 @@ class TrajDataSet(Dataset):
                     high=np.log10(self.length_range[1]),
                 ),
             )
+        )
+        """
+        max_length = self.length_range[1]
+        scale = max_length / 8.0
+        min_length = self.length_range[0]
+        length = int(
+            min_length
+            + truncexpon.rvs(scale=scale, b=(max_length - min_length) / scale)
         )
 
         log_diffusion = self.generate_log_diffusion()
