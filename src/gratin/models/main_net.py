@@ -1,7 +1,7 @@
 from collections import defaultdict
 import pytorch_lightning as pl
 from torchmetrics import MeanAbsoluteError as MAE
-from torchmetrics.classification.f_beta import F1Score as F1
+from torchmetrics.classification import MulticlassF1Score as F1
 import torch.nn as nn
 import torch
 from functools import partial
