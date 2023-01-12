@@ -19,5 +19,6 @@ if __name__ == "__main__":
         max_n_epochs=50,
         length_range=(7, 100),
         num_workers=4,
-        time_delta_range=(0.005, 1.0),
+        time_delta_range=(0.015, 0.016),
+        noise_range=(0.015, 0.12),
     )

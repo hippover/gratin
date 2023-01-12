@@ -1,4 +1,5 @@
 from collections import defaultdict
+import itertools
 import pytorch_lightning as pl
 from torchmetrics import MeanAbsoluteError as MAE
 from torchmetrics.classification.f_beta import F1Score as F1
@@ -37,6 +38,7 @@ class MMDNet(pl.LightningModule):
         noise_scale: float = 0.5,
         noise_scale_decay: float = 0.98,
         scale_types: list = ["step_std", "mean_time_step"],
+        normalize_mode: str = "covariance",
         n_splits: int = 10,
     ):
         super().__init__()
@@ -76,6 +78,12 @@ class MMDNet(pl.LightningModule):
             "model": self.gen_cond_model,
             "diff": self.gen_cond_diff,
         }
+        self.sub_models_index = [
+            i for i, c in enumerate(RW_types) if c in ["sBM", "fBM", "OU", "CTRW"]
+        ]
+        self.sup_models_index = [
+            i for i, c in enumerate(RW_types) if c in ["sBM", "fBM", "LW"]
+        ]
 
     def gen_cond_alpha(self, batch):
         return (
@@ -83,19 +91,30 @@ class MMDNet(pl.LightningModule):
                 pseudo_alpha(batch.alpha[:, 0])
                 - (torch.rand(1, device=batch.alpha.device) * 2)
             )
-            < 0.3,
+            < 0.3
         )
 
     def gen_cond_model(self, batch):
-        return (
-            torch.isin(
-                batch.model[:, 0],
-                torch.randperm(
-                    len(self.hparams["RW_types"]), device=batch.model.device
-                )[: (len(self.hparams["RW_types"]) // 2)],
-            ),
-            pseudo_alpha(batch.alpha[:, 0]) > 1,
+        models_sub = np.random.choice(self.sub_models_index, size=2, replace=False)
+        models_sup = np.random.choice(self.sup_models_index, size=2, replace=False)
+        cond1 = (batch.model[:, 0] == models_sub[0]) & (
+            pseudo_alpha(batch.alpha[:, 0]) <= 1
         )
+        cond2 = (batch.model[:, 0] == models_sub[1]) & (
+            pseudo_alpha(batch.alpha[:, 0]) <= 1
+        )
+        cond3 = (batch.model[:, 0] == models_sup[0]) & (
+            pseudo_alpha(batch.alpha[:, 0]) >= 1
+        )
+        cond4 = (batch.model[:, 0] == models_sup[1]) & (
+            pseudo_alpha(batch.alpha[:, 0]) >= 1
+        )
+        return [
+            cond1,  # 1 vs 2 & 3 vs 4
+            cond2,
+            cond3,
+            cond4,
+        ]
 
     def gen_cond_diff(self, batch):
         return (
@@ -103,7 +122,7 @@ class MMDNet(pl.LightningModule):
                 batch.log_diffusion[:, 0]
                 - (torch.rand(1, device=batch.log_diffusion.device) * 2.5 - 2.0)
             )
-            < 0.5,
+            < 0.5
         )
 
     def forward(self, x):
@@ -124,13 +143,53 @@ class MMDNet(pl.LightningModule):
         model = self.out_model(h_)
         return {"alpha": alpha, "model": model}, h
 
+    def normalize_h(self, h_, mode: str = "covariance"):
+        if mode == "covariance":
+            h_mean = torch.mean(h_, dim=0, keepdim=True)
+            h = h_ - h_mean
+            cov = torch.cov(h_.T)
+            # print(cov)
+            L = torch.linalg.cholesky(
+                cov / torch.pow(torch.linalg.det(cov), 1.0 / h_.shape[0])
+            )
+            L_inv = torch.linalg.inv(L)
+            h = h @ L_inv
+            s = torch.linalg.eigvals(cov)
+            s = torch.abs(s)
+            if self.training:
+                self.log(
+                    "std_projected_h",
+                    torch.mean(torch.std(h, dim=0)),
+                    on_step=True,
+                    on_epoch=False,
+                )
+                self.log("low_lambda", torch.min(s))
+                self.log("high_lambda", torch.max(s))
+
+            s_penalty = torch.log(torch.min(s) / torch.max(s)) ** 2 + torch.mean(
+                h_mean**2
+            )
+            return h, s_penalty
+        elif mode == "elastic":
+            elastic_penalty = torch.mean(h_**2) / 10
+            return h_, elastic_penalty
+        elif mode is None:
+            return h_, 0.0
+        raise "Unknown mode : %s" % mode
+
     def get_MMD(
-        self, h_, batch, noise_amplitude: float = 0.0, return_s_penalty: bool = False
+        self,
+        h_input,
+        batch,
+        noise_amplitude: float = 0.0,
+        return_s_penalty: bool = False,
+        return_normalized_h: bool = False,
     ):
-        u, s, v = pca_lowrank(h_, center=True)
-        h = torch.matmul(h_, v @ torch.diag(1.0 / torch.sqrt(s + 1e-6)))
-        s_penalty = torch.log(torch.min(s) / torch.max(s)) ** 2
-        MIN_SPLIT_SIZE = h.shape[0] // 10
+        # u, s, v = pca_lowrank(h_, center=True)
+        h_ = h_input.clone()
+        h, s_penalty = self.normalize_h(h_, mode=self.hparams["normalize_mode"])
+
+        MIN_SPLIT_SIZE = int(h_.shape[0] / 50)
 
         mmds = {
             "alpha": 0.0,
@@ -141,37 +200,72 @@ class MMDNet(pl.LightningModule):
         # Based on anomalous exponent :
         # those close to a value of alpha VS the others
 
-        for i in range(self.hparams["n_splits"]):
+        for n_split in range(self.hparams["n_splits"]):
             groups = {}
             for name, gen in self.cond_generators.items():
+                n_trials = 0
                 while True:
                     # conds[name] is a list of boolean tensors
-                    conds = gen(batch)
-                    n_levels = len(conds)
+                    cond_or_conds = gen(batch)
 
-                    g = torch.zeros_like(h[:, 0])
-                    for i, cond in enumerate(conds[::-1]):
-                        n = (n_levels - 1) - i
-                        g = g + (2**n) * cond
+                    if isinstance(cond_or_conds, list):
+                        conds = cond_or_conds
+                    else:
+                        conds = [cond_or_conds, ~cond_or_conds]
+
+                    comparisons = []
+                    for c1, c2 in itertools.combinations(conds, 2):
+                        if not torch.equal(
+                            torch.unique(batch.model[c1]), torch.unique(batch.model[c2])
+                        ):
+                            comparisons.append(
+                                (
+                                    c1,
+                                    c2,
+                                )
+                            )
+
+                    n_comparisons = len(comparisons)
+
+                    g = -1 * torch.ones_like(h[:, 0])
+                    for i, cond in enumerate(conds):
+                        assert torch.sum(g[cond] >= 0) == 0, g[cond]
+                        g[cond] = i
 
                     if all(
-                        [
-                            torch.sum(g == i) > MIN_SPLIT_SIZE
-                            for i in range(2**n_levels)
-                        ]
+                        [torch.sum(g == i) > MIN_SPLIT_SIZE for i in range(len(conds))]
                     ):
                         groups[name] = g
                         break
+                    else:
+                        n_trials = n_trials + 1
+                        if n_trials % 10 == 0:
+                            print("%d-th trial..." % n_trials)
 
-                for i in range(n_levels):
-                    cond1 = g == (2 * i)
-                    cond2 = g == (2 * i + 1)
+                for cond1, cond2 in comparisons:
+
+                    if name == "model":
+                        pass
+                        # assert (1 - torch.mean(pseudo_alpha(batch.alpha[cond1, 0]))) * (
+                        #    1 - torch.mean(pseudo_alpha(batch.alpha[cond2, 0]))
+                        # ) > 0, "Should only compare sub with sub and sup with sup !"
+                        """
+                        print(
+                            torch.unique(batch.model[cond1, 0]),
+                            torch.unique(batch.model[cond2, 0]),
+                        )
+                        print(
+                            torch.mean(pseudo_alpha(batch.alpha[cond1, 0])),
+                            torch.mean(pseudo_alpha(batch.alpha[cond2, 0])),
+                        )
+                        """
+
                     h1, h2 = h[cond1, :], h[cond2, :]
                     h1 = h1 + torch.randn_like(h1) * noise_amplitude
                     h2 = h2 + torch.randn_like(h2) * noise_amplitude
-                    mmds[name] = mmds[name] + (
-                        1.0 / (2 ** (n_levels - 1))
-                    ) * self.mmd_layer(h1, h2)
+                    mmds[name] = mmds[name] + (1.0 / n_comparisons) * self.mmd_layer(
+                        h1, h2
+                    )
 
         mmd_alpha = mmds["alpha"] / self.hparams["n_splits"]
         mmd_model = mmds["model"] / self.hparams["n_splits"]
@@ -184,19 +278,28 @@ class MMDNet(pl.LightningModule):
         )
         if return_s_penalty:
             to_return = to_return + (s_penalty,)
+        if return_normalized_h:
+            to_return = to_return + (h,)
         return to_return
 
     def training_step(self, batch, batch_idx):
         out, h_ = self(batch)
+        self.log(
+            "std_raw_h",
+            torch.mean(torch.std(h_, dim=0)),
+            on_step=True,
+            on_epoch=False,
+        )
         alpha = out["alpha"]
         model = out["model"]
 
-        mmd_alpha, mmd_model, mmd_diff, s_penalty = self.get_MMD(
+        mmd_alpha, mmd_model, mmd_diff, s_penalty, norm_h = self.get_MMD(
             h_,
             batch,
             noise_amplitude=self.hparams["noise_scale"]
             * (self.hparams["noise_scale_decay"] ** self.current_epoch),
             return_s_penalty=True,
+            return_normalized_h=True,
         )
 
         total_mmd = mmd_model + mmd_alpha + mmd_diff
@@ -231,6 +334,7 @@ class MMDNet(pl.LightningModule):
             "h": h_,
             "alpha": alpha,
             "model": model,
+            "norm_h": norm_h,
         }
 
     def validation_step(self, batch, batch_idx):

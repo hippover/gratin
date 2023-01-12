@@ -25,8 +25,12 @@ class MainNet(pl.LightningModule):
         log_distance_features: bool = True,
         RW_types: list = ["fBM"],
         scale_types: list = ["step_std"],
+        predict_alpha: bool = True,
+        predict_model: bool = True
     ):
         super().__init__()
+        
+        assert predict_alpha or predict_model
 
         if "mean_time_step" not in scale_types:
             logging.warn(
@@ -48,18 +52,20 @@ class MainNet(pl.LightningModule):
         )
 
         outputs = {}
-        outputs["alpha"] = (
-            AlphaPredictor(input_dim=latent_dim),
-            partial(self.get_target, target="alpha"),
-            # L2_loss,
-            nn.MSELoss(),
-        )
-        outputs["model"] = (
-            MLP([latent_dim, 2 * latent_dim, latent_dim, len(RW_types)]),
-            partial(self.get_target, target="model"),
-            # Category_loss,
-            nn.CrossEntropyLoss(),
-        )
+        if predict_alpha:
+            outputs["alpha"] = (
+                AlphaPredictor(input_dim=latent_dim),
+                partial(self.get_target, target="alpha"),
+                # L2_loss,
+                nn.MSELoss(),
+            )
+        if predict_model:
+            outputs["model"] = (
+                MLP([latent_dim, 2 * latent_dim, latent_dim, len(RW_types)]),
+                partial(self.get_target, target="model"),
+                # Category_loss,
+                nn.CrossEntropyLoss(),
+            )
 
         self.features_maker = TrajsFeaturesSimple()
 

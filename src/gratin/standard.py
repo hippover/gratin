@@ -52,15 +52,25 @@ def train_model(
     max_n_epochs: int = 100,
     num_workers: int = 0,  # number of workers during the training process (should be < # CPUs)
     dim: int = 2,  # Dimension of trajectories. 2 or 3
+    RW_types: List = ["fBM",
+            "LW",
+            "sBM",
+            "OU",
+            "CTRW"],
     log_diffusion_range: tuple = (
         -2.0,
         1.1,
     ),  # log-diffusion is drawn following a truncated centered gaussian in this range
-    length_range: tuple = (7, 35),  # length is drawn in a log-uniform way
+    length_range: tuple = (
+        7,
+        35,
+    ),  # length is drawn from a shifted (+min) and truncated (<max) exponential whose scale is (max-min)/8
     noise_range: tuple = (
         0.015,
         0.05,
     ),  # localization uncertainty, in micrometers (one value per trajectory)
+    predict_alpha: bool = True, # Whether the model should be trained to predict alpha or not
+    predict_model: bool = True, # Whether the model should be trained to predict RW type or not
 ):
 
     if not os.path.exists(export_path):
@@ -71,13 +81,7 @@ def train_model(
 
     ds_params = {
         "dim": dim,  # can be (1, 2 or 3)
-        "RW_types": [
-            "fBM",
-            "LW",
-            "sBM",
-            "OU",
-            "CTRW",
-        ],  # Types of random walks used during training
+        "RW_types": RW_types,  # Types of random walks used during training
         "time_delta_range": time_delta_range,
         "logdiffusion_range": log_diffusion_range,
         "length_range": length_range,
@@ -93,6 +97,8 @@ def train_model(
         dim=2,
         RW_types=ds_params["RW_types"],
         scale_types=["step_std", "mean_time_step"],
+        predict_alpha = predict_alpha,
+        predict_model = predict_model
     )
 
     pl.seed_everything(1)
@@ -124,8 +130,9 @@ def train_model(
     )
 
     trainer = pl.Trainer(
-        auto_select_gpus=torch.cuda.is_available(),
-        gpus=1 * torch.cuda.is_available(),
+        accelerator='auto', 
+        devices=1,
+        #gpus=1 * torch.cuda.is_available(),
         gradient_clip_val=10.0,
         reload_dataloaders_every_n_epochs=1,
         callbacks=[
@@ -325,7 +332,7 @@ def trajectory_is_valid(t: pd.DataFrame):
 
 def get_predictions(
     model,
-    encoder,  # UMAP or None
+    encoder,  # UMAP
     trajectories: Union[List, pd.DataFrame],
     times: List = None,  # must be provided if trajectories is a list
 ):
@@ -360,24 +367,25 @@ def get_predictions(
     dl_exp = DataLoader(exp_ds, batch_size=128, shuffle=False, drop_last=False)
 
     outputs, info, h = get_predictions_of_dl(model, dl_exp, latent_samples=len(exp_ds))
-    probabilities = np.exp(outputs["model"]) / np.reshape(
+    
+    df = pd.DataFrame(index=indices)
+    
+    if "model" in outputs:
+        probabilities = np.exp(outputs["model"]) / np.reshape(
         np.exp(outputs["model"]).sum(axis=1), (-1, 1)
     )
-    best_model = [
-        model.hparams["RW_types"][i] for i in np.argmax(probabilities, axis=1)
-    ]
-    df = pd.DataFrame(index=indices)
+        best_model = [
+            model.hparams["RW_types"][i] for i in np.argmax(probabilities, axis=1)
+        ]
+        df["best_model"] = best_model
+        df[["p_%s" % m for m in model.hparams["RW_types"]]] = probabilities
+        
+    if "alpha" in outputs:
+        df["alpha"] = outputs["alpha"]
+        
     df["length"] = lengths
-    df["alpha"] = outputs["alpha"]
-    df["best_model"] = best_model
-    df[["p_%s" % m for m in model.hparams["RW_types"]]] = probabilities
-    if encoder is not None:
-        # Gratin + UMAP
-        df[["U_1", "U_2"]] = np.array(encoder(h))
-        h_cols = ["h_%d" % (i + 1) for i in range(h.shape[1])]
-        df[h_cols] = h
-    else:
-        # Gratin trained directly in 2D with MMD loss
-        df[["z_1", "z_2"]] = h
+    df[["U_1", "U_2"]] = np.array(encoder(h))
+    h_cols = ["h_%d" % (i + 1) for i in range(h.shape[1])]
+    df[h_cols] = h
 
     return df
