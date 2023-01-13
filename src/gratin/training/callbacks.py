@@ -47,7 +47,7 @@ class Plotter(Callback):
                 pred = torch.argmax(pred, dim=1)
                 n_models = len(pl_module.hparams["RW_types"])
                 CM = (
-                    confusion_matrix(pred, info, n_models, normalize="true")
+                    confusion_matrix(pred, info, task='multiclass',num_classes=n_models, normalize="true")
                     .detach()
                     .cpu()
                 )
