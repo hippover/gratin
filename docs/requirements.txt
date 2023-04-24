@@ -2,7 +2,7 @@
 # To build the module reference correctly, make sure every external package
 # under `install_requires` in `setup.cfg` is also listed here!
 importlib-metadata; python_version<"3.8"
-setuptools==59.5.0
+setuptools==65.5.1
 sphinx>=3.2.1
 torch >= 1.10
 pytorch-lightning>=1.5.10
